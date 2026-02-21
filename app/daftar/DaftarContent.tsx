@@ -55,11 +55,16 @@ export default function DaftarContent() {
         setStep('complete');
       } else if (result.success && !result.isNewUser) {
         // User sudah ada, langsung login
-        await saveUserToFirestore(userEmail, '', result.uid || '', false);
+        // ✅ PERBAIKAN: Passing object di parameter ke-2
+        await saveUserToFirestore(userEmail, {
+          name: '',
+          uid: result.user.uid, // ✅ PERBAIKAN: Ambil dari result.user.uid
+          isNewUser: false
+        });
         
         localStorage.setItem('needtea_user', JSON.stringify({
           email: userEmail,
-          uid: result.uid,
+          uid: result.user.uid, // ✅ PERBAIKAN: Ambil dari result.user.uid
           isLoggedIn: true,
           loginTime: new Date().toISOString()
         }));
@@ -127,8 +132,12 @@ export default function DaftarContent() {
       
       onAuthStateChanged(auth, async (user) => {
         if (user) {
-          // Simpan ke Firestore dengan nama
-          await saveUserToFirestore(email, name, user.uid, true);
+          // ✅ PERBAIKAN: Passing object di parameter ke-2
+          await saveUserToFirestore(email, {
+            name: name,
+            uid: user.uid,
+            isNewUser: true
+          });
           
           localStorage.setItem('needtea_user', JSON.stringify({
             email: email,

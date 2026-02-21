@@ -70,11 +70,20 @@ export const checkSignInLink = (url: string) => {
   return isSignInWithEmailLink(auth, url);
 };
 
+// ✅ PERBAIKAN: Tambahkan isNewUser di return value
 export const completeSignInWithLink = async (email: string, url: string) => {
   try {
     const result = await signInWithEmailLink(auth, email, url);
     window.localStorage.removeItem('emailForSignIn');
-    return { success: true, user: result.user };
+    
+    // ✅ TAMBAHAN: Cek apakah user baru
+    const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
+    
+    return { 
+      success: true, 
+      user: result.user,
+      isNewUser: isNewUser  // ✅ TAMBAH INI
+    };
   } catch (error: any) {
     return { success: false, error: error.message };
   }

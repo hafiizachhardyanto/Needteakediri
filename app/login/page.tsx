@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import FloatingLeaves from '@/components/FloatingLeaves';
@@ -8,7 +8,8 @@ import Navbar from '@/components/Navbar';
 import { sendEmailLink, checkSignInLink, completeSignInWithLink, saveUserToFirestore, checkUserExists } from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
 
-export default function LoginPage() {
+// ✅ TAMBAHAN: Komponen yang menggunakan useSearchParams dibungkus terpisah
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { userData } = useAuth();
@@ -51,7 +52,6 @@ export default function LoginPage() {
     const result = await completeSignInWithLink(email, url);
     
     if (result.success && result.user) {
-      // PERUBAHAN: Ambil uid dari result.user, bukan langsung dari result
       const uid = result.user.uid;
       const isNewUser = result.user.metadata?.creationTime === result.user.metadata?.lastSignInTime;
       
@@ -134,7 +134,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@email.com"
-                  className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-4 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
                   required
                 />
               </div>
@@ -178,5 +178,28 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+// ✅ TAMBAHAN: Loading fallback component
+function LoginLoading() {
+  return (
+    <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
+      <FloatingLeaves />
+      <div className="relative z-10 text-white text-center">
+        <div className="animate-spin h-12 w-12 border-4 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
+        <p>Memuat...</p>
+      </div>
+    </main>
+  );
+}
+
+// ✅ PERBAIKAN: Export default dengan Suspense boundary
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoading />}>
+      <LoginContent />
+    </Suspense>
   );
 }
