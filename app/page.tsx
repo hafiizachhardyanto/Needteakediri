@@ -1,12 +1,41 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import TeaLeaf from '@/components/TeaLeaf';
+import useAuth from '@/hooks/useAuth';
 
 export default function Home() {
+  const router = useRouter();
+  const { userData, isAdmin, loading } = useAuth();
+
+  // Redirect otomatis ke admin jika sudah login sebagai admin
+  useEffect(() => {
+    if (!loading && isAdmin) {
+      router.push('/admin');
+    }
+  }, [loading, isAdmin, router]);
+
+  // Jika sedang loading atau adalah admin (akan di-redirect), tampilkan loading
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700">
+        <div className="text-white text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Jika admin, tidak perlu render halaman ini (sudah di-redirect)
+  if (isAdmin) {
+    return null;
+  }
+
   return (
     <main className="min-h-screen relative overflow-hidden">
       {/* Background Gradasi */}
@@ -56,16 +85,25 @@ export default function Home() {
               </button>
             </div>
             
-            {/* Login Button */}
-            <div className="mt-6 flex justify-center md:justify-start">
-              <Link href="/login">
-                <button className="px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full font-semibold hover:bg-white/30 transition-all flex items-center space-x-2 group">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span>Masuk / Login</span>
-                </button>
-              </Link>
+            {/* Login / Admin Button */}
+            <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center md:justify-start">
+              {!userData ? (
+                // Belum login - tampilkan tombol Login
+                <Link href="/login">
+                  <button className="px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full font-semibold hover:bg-white/30 transition-all flex items-center space-x-2 group">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span>Masuk / Login</span>
+                  </button>
+                </Link>
+              ) : (
+                // Sudah login sebagai user (bukan admin, karena admin sudah di-redirect)
+                <div className="flex items-center space-x-2 px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full">
+                  <span>👋</span>
+                  <span>Halo, {userData.name}</span>
+                </div>
+              )}
             </div>
             
             {/* Stats */}
