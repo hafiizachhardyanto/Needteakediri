@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
 
-export default function VerifikasiContent() {
+// Komponen utama yang menggunakan useSearchParams
+function VerifikasiForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -15,7 +16,7 @@ export default function VerifikasiContent() {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(300);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'send' | 'verify' | 'profile'>('send');
   const [mode, setMode] = useState<'login' | 'register'>('register');
@@ -34,7 +35,6 @@ export default function VerifikasiContent() {
       
       if (modeParam) {
         setMode(modeParam);
-        // Langsung kirim OTP saat halaman dimuat
         handleInitialSend(decodedEmail, modeParam);
       }
     }
@@ -55,6 +55,7 @@ export default function VerifikasiContent() {
     setLoading(false);
   };
 
+  // Generate OTP dan simpan ke Firestore
   const generateAndSendOtp = async (targetEmail: string, currentMode: string) => {
     try {
       // Generate OTP 6 digit
@@ -95,7 +96,7 @@ export default function VerifikasiContent() {
         used: false
       });
       
-      // TODO: Integrasi dengan Email Service (SendGrid/EmailJS/Nodemailer)
+      // Tampilkan OTP di console untuk testing
       console.log('📧 OTP untuk', targetEmail, ':', newOtp);
       
       setCountdown(300); // 5 menit countdown
@@ -223,6 +224,7 @@ export default function VerifikasiContent() {
     }
   };
 
+  // Cek admin dan redirect
   const handleLoginSuccess = async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', email));
@@ -240,8 +242,13 @@ export default function VerifikasiContent() {
         isLoggedIn: true,
         loginTime: new Date().toISOString()
       }));
-      
-      router.push('/?login=success');
+
+      // Cek admin dan redirect
+      if (userData?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/?login=success');
+      }
     } catch (err) {
       setError('Gagal login. Silakan coba lagi.');
     }
@@ -327,7 +334,6 @@ export default function VerifikasiContent() {
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 border border-white/20 shadow-2xl">
           
-          {/* Header */}
           <div className="text-center mb-8">
             <Link href="/" className="inline-flex items-center space-x-2 mb-6 group">
               <span className="text-4xl group-hover:animate-bounce">🍵</span>
@@ -355,14 +361,12 @@ export default function VerifikasiContent() {
             )}
           </div>
 
-          {/* Error Message */}
           {error && (
             <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-4 mb-6 text-center animate-fade-in-up">
               <p className="text-red-100 text-sm">{error}</p>
             </div>
           )}
 
-          {/* Step 1: Input Email */}
           {step === 'send' && (
             <form onSubmit={handleSendOtp} className="space-y-6">
               <div>
@@ -421,7 +425,6 @@ export default function VerifikasiContent() {
             </form>
           )}
 
-          {/* Step 2: Input OTP */}
           {step === 'verify' && (
             <form onSubmit={handleVerifyOtp} className="space-y-6">
               <div>
@@ -497,7 +500,6 @@ export default function VerifikasiContent() {
                 </button>
               </div>
 
-              {/* Demo Notice */}
               <div className="mt-6 bg-yellow-400/20 border border-yellow-400/30 rounded-xl p-4">
                 <p className="text-yellow-100 text-xs text-center">
                   💡 <span className="font-bold">Demo:</span> Cek console browser (F12) untuk melihat kode OTP
@@ -506,7 +508,6 @@ export default function VerifikasiContent() {
             </form>
           )}
 
-          {/* Step 3: Complete Profile (Register only) */}
           {step === 'profile' && (
             <form onSubmit={handleCompleteRegistration} className="space-y-6">
               <div className="text-center mb-6">
@@ -559,7 +560,6 @@ export default function VerifikasiContent() {
             </form>
           )}
 
-          {/* Back to Home */}
           <div className="mt-6 pt-6 border-t border-white/20">
             <Link href="/" className="block w-full">
               <button className="w-full py-3 text-white/70 hover:text-white text-sm font-medium transition-all flex items-center justify-center space-x-2">
@@ -573,5 +573,28 @@ export default function VerifikasiContent() {
         </div>
       </div>
     </main>
+  );
+}
+
+// Loading fallback
+function VerifikasiLoading() {
+  return (
+    <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
+      <FloatingLeaves />
+      <div className="relative z-10 text-white text-center">
+        <div className="animate-spin h-12 w-12 border-4 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
+        <p>Memuat...</p>
+      </div>
+    </main>
+  );
+}
+
+// Export dengan Suspense
+export default function VerifikasiContent() {
+  return (
+    <Suspense fallback={<VerifikasiLoading />}>
+      <VerifikasiForm />
+    </Suspense>
   );
 }

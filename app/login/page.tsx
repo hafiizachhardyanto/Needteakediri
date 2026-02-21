@@ -5,24 +5,34 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
-import { sendEmailLink, checkSignInLink, completeSignInWithLink, saveUserToFirestore, checkUserExists } from '@/lib/firebase';
+import { 
+  sendEmailLink, 
+  checkSignInLink, 
+  completeSignInWithLink, 
+  saveUserToFirestore, 
+  checkUserExists 
+} from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
 
-// ✅ TAMBAHAN: Komponen yang menggunakan useSearchParams dibungkus terpisah
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { userData } = useAuth();
+  const { userData, isAdmin } = useAuth();
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [step, setStep] = useState<'email' | 'otp'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [countdown, setCountdown] = useState(300);
 
-  // Redirect jika sudah login
+  // ✅ PERBAIKAN: Redirect jika sudah login (cek admin dulu)
   useEffect(() => {
-    if (userData) {
+    if (!loading && userData) {
+      // Jika admin, langsung ke /admin
+      if (isAdmin) {
+        router.push('/admin');
+        return;
+      }
+      
+      // Jika user biasa, ke redirect atau home
       const redirect = searchParams.get('redirect') || '/';
       const savedCart = localStorage.getItem('needtea_cart');
       
@@ -32,7 +42,7 @@ function LoginContent() {
         router.push(redirect);
       }
     }
-  }, [userData, router, searchParams]);
+  }, [userData, isAdmin, loading, router, searchParams]);
 
   // Check if this is email link callback
   useEffect(() => {
@@ -68,8 +78,14 @@ function LoginContent() {
         loginTime: new Date().toISOString()
       }));
       
-      const redirect = searchParams.get('redirect') || '/';
-      router.push(redirect);
+      // ✅ PERBAIKAN: Cek role admin dari database
+      const userCheck = await checkUserExists(email);
+      if (userCheck.exists && userCheck.userData?.role === 'admin') {
+        router.push('/admin'); // Admin langsung ke dashboard
+      } else {
+        const redirect = searchParams.get('redirect') || '/';
+        router.push(redirect); // User biasa ke redirect normal
+      }
     } else {
       setError('Link tidak valid atau sudah kadaluarsa.');
       setLoading(false);
@@ -90,7 +106,6 @@ function LoginContent() {
     
     if (result.success) {
       setStep('otp');
-      setCountdown(300);
     } else {
       setError(result.error || 'Gagal mengirim email');
     }
@@ -181,7 +196,6 @@ function LoginContent() {
   );
 }
 
-// ✅ TAMBAHAN: Loading fallback component
 function LoginLoading() {
   return (
     <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
@@ -195,7 +209,6 @@ function LoginLoading() {
   );
 }
 
-// ✅ PERBAIKAN: Export default dengan Suspense boundary
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginLoading />}>
