@@ -7,6 +7,7 @@ import Navbar from '@/components/Navbar';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import TeaLeaf from '@/components/TeaLeaf';
 import useAuth from '@/hooks/useAuth';
+import { logoutUser } from '@/lib/firebase';
 
 export default function Home() {
   const router = useRouter();
@@ -18,6 +19,13 @@ export default function Home() {
       router.push('/admin');
     }
   }, [loading, isAdmin, router]);
+
+  const handleLogout = async () => {
+    if (confirm('Apakah Anda yakin ingin keluar?')) {
+      await logoutUser();
+      window.location.reload(); // Refresh halaman setelah logout
+    }
+  };
 
   // Jika sedang loading atau adalah admin (akan di-redirect), tampilkan loading
   if (loading) {
@@ -85,7 +93,7 @@ export default function Home() {
               </button>
             </div>
             
-            {/* Login / Admin Button */}
+            {/* Auth Buttons */}
             <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center md:justify-start">
               {!userData ? (
                 // Belum login - tampilkan tombol Login
@@ -98,11 +106,34 @@ export default function Home() {
                   </button>
                 </Link>
               ) : (
-                // Sudah login sebagai user (bukan admin, karena admin sudah di-redirect)
-                <div className="flex items-center space-x-2 px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full">
-                  <span>👋</span>
-                  <span>Halo, {userData.name}</span>
-                </div>
+                // Sudah login - tampilkan sapaan, tombol admin (jika admin), dan logout
+                <>
+                  <div className="flex items-center space-x-2 px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full">
+                    <span>👋</span>
+                    <span>Halo, {userData.name}</span>
+                  </div>
+                  
+                  {/* Tombol Admin (hanya muncul jika admin) */}
+                  {isAdmin && (
+                    <Link href="/admin">
+                      <button className="px-6 py-3 bg-yellow-400/20 backdrop-blur-sm border border-yellow-400/50 text-yellow-100 rounded-full font-semibold hover:bg-yellow-400/30 transition-all flex items-center space-x-2">
+                        <span>👑</span>
+                        <span>Admin Panel</span>
+                      </button>
+                    </Link>
+                  )}
+                  
+                  {/* Tombol Logout */}
+                  <button 
+                    onClick={handleLogout}
+                    className="px-6 py-3 bg-red-500/20 backdrop-blur-sm border border-red-500/50 text-red-100 rounded-full font-semibold hover:bg-red-500/30 transition-all flex items-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span>Keluar</span>
+                  </button>
+                </>
               )}
             </div>
             
