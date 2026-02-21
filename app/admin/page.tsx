@@ -6,6 +6,7 @@ import {
   getMenuItems, 
   addMenuItem, 
   deleteMenuItem,
+  updateMenuItem,
   completeOrder,
   updateOrderStatus,
   getDailyStats,
@@ -34,8 +35,13 @@ export default function AdminDashboard() {
     description: '',
     price: '',
     category: 'food',
-    image: ''
+    image: '',
+    stock: ''
   });
+
+  // State untuk edit menu
+  const [editingMenu, setEditingMenu] = useState<any>(null);
+  const [showEditMenu, setShowEditMenu] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -116,17 +122,62 @@ export default function AdminDashboard() {
     });
   };
 
-  const handleAddMenu = async (e: React.FormEvent) => {
+ const handleAddMenu = async (e: React.FormEvent) => {
+  e.preventDefault();
+  const result = await addMenuItem({
+    name: newMenu.name,
+    description: newMenu.description,
+    price: parseInt(newMenu.price),
+    category: newMenu.category as 'food' | 'drink', // <-- Tambahkan type assertion
+    image: newMenu.image,
+    stock: parseInt(newMenu.stock) || 0
+  });
+  if (result.success) {
+    setShowAddMenu(false);
+    setNewMenu({ name: '', description: '', price: '', category: 'food', image: '', stock: '' });
+    loadMenu();
+  }
+};
+
+  const handleEditMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await addMenuItem({
-      ...newMenu,
-      price: parseInt(newMenu.price)
+    if (!editingMenu?.id) return;
+    
+    const result = await updateMenuItem(editingMenu.id, {
+      name: editingMenu.name,
+      description: editingMenu.description,
+      price: parseInt(editingMenu.price),
+      category: editingMenu.category,
+      image: editingMenu.image,
+      stock: parseInt(editingMenu.stock) || 0
     });
+    
     if (result.success) {
-      setShowAddMenu(false);
-      setNewMenu({ name: '', description: '', price: '', category: 'food', image: '' });
+      setShowEditMenu(false);
+      setEditingMenu(null);
       loadMenu();
+    } else {
+      alert('Gagal mengupdate menu: ' + result.error);
     }
+  };
+
+  const handleDeleteMenu = async (itemId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus menu ini?')) return;
+    const result = await deleteMenuItem(itemId);
+    if (result.success) {
+      loadMenu();
+    } else {
+      alert('Gagal menghapus menu: ' + result.error);
+    }
+  };
+
+  const openEditModal = (item: any) => {
+    setEditingMenu({
+      ...item,
+      price: item.price?.toString() || '',
+      stock: item.stock?.toString() || '0'
+    });
+    setShowEditMenu(true);
   };
 
   const handleCompleteOrder = async (orderId: string) => {
@@ -419,8 +470,22 @@ export default function AdminDashboard() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {menuItems.map((item) => (
                 <div key={item.id} className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700">
-                  <div className="h-40 bg-gray-700 flex items-center justify-center text-4xl">
-                    {item.category === 'food' ? '🍰' : '🥤'}
+                  <div className="h-40 bg-gray-700 flex items-center justify-center text-4xl relative">
+                    {item.image ? (
+                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{item.category === 'food' ? '🍰' : '🥤'}</span>
+                    )}
+                    {/* Stock Badge */}
+                    <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold ${
+                      (item.stock || 0) > 10 
+                        ? 'bg-green-500 text-white' 
+                        : (item.stock || 0) > 0 
+                          ? 'bg-yellow-500 text-black' 
+                          : 'bg-red-500 text-white'
+                    }`}>
+                      Stok: {item.stock || 0}
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="flex justify-between items-start mb-2">
@@ -428,17 +493,33 @@ export default function AdminDashboard() {
                       <span className="text-yellow-400 font-bold">Rp {item.price?.toLocaleString()}</span>
                     </div>
                     <p className="text-gray-400 text-sm mb-3">{item.description}</p>
-                    <span className={`inline-block px-2 py-1 rounded text-xs ${
-                      item.category === 'food' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
-                    }`}>
-                      {item.category === 'food' ? '🍰 Makanan' : '🥤 Minuman'}
-                    </span>
-                    <button
-                      onClick={() => deleteMenuItem(item.id).then(loadMenu)}
-                      className="mt-3 w-full py-2 bg-red-600/50 hover:bg-red-600 rounded-lg text-sm transition-all"
-                    >
-                      🗑️ Hapus
-                    </button>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`inline-block px-2 py-1 rounded text-xs ${
+                        item.category === 'food' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'
+                      }`}>
+                        {item.category === 'food' ? '🍰 Makanan' : '🥤 Minuman'}
+                      </span>
+                      {/* Status Stok */}
+                      <span className={`text-xs ${
+                        (item.stock || 0) === 0 ? 'text-red-400' : (item.stock || 0) < 5 ? 'text-yellow-400' : 'text-green-400'
+                      }`}>
+                        {(item.stock || 0) === 0 ? '❌ Habis' : (item.stock || 0) < 5 ? '⚠️ Hampir Habis' : '✅ Tersedia'}
+                      </span>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => openEditModal(item)}
+                        className="flex-1 py-2 bg-blue-600/50 hover:bg-blue-600 rounded-lg text-sm transition-all"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteMenu(item.id)}
+                        className="flex-1 py-2 bg-red-600/50 hover:bg-red-600 rounded-lg text-sm transition-all"
+                      >
+                        🗑️ Hapus
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -447,45 +528,189 @@ export default function AdminDashboard() {
             {/* Add Menu Modal */}
             {showAddMenu && (
               <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md border border-gray-700">
+                <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md border border-gray-700 max-h-[90vh] overflow-y-auto">
                   <h3 className="text-xl font-bold mb-4">Tambah Menu Baru</h3>
                   <form onSubmit={handleAddMenu} className="space-y-4">
-                    <input
-                      type="text"
-                      placeholder="Nama menu"
-                      value={newMenu.name}
-                      onChange={(e) => setNewMenu({...newMenu, name: e.target.value})}
-                      className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
-                      required
-                    />
-                    <textarea
-                      placeholder="Deskripsi"
-                      value={newMenu.description}
-                      onChange={(e) => setNewMenu({...newMenu, description: e.target.value})}
-                      className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
-                      rows={3}
-                    />
-                    <input
-                      type="number"
-                      placeholder="Harga"
-                      value={newMenu.price}
-                      onChange={(e) => setNewMenu({...newMenu, price: e.target.value})}
-                      className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
-                      required
-                    />
-                    <select
-                      value={newMenu.category}
-                      onChange={(e) => setNewMenu({...newMenu, category: e.target.value})}
-                      className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
-                    >
-                      <option value="food">🍰 Makanan</option>
-                      <option value="drink">🥤 Minuman</option>
-                    </select>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Nama Menu</label>
+                      <input
+                        type="text"
+                        placeholder="Nama menu"
+                        value={newMenu.name}
+                        onChange={(e) => setNewMenu({...newMenu, name: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Deskripsi</label>
+                      <textarea
+                        placeholder="Deskripsi menu"
+                        value={newMenu.description}
+                        onChange={(e) => setNewMenu({...newMenu, description: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Harga (Rp)</label>
+                        <input
+                          type="number"
+                          placeholder="Harga"
+                          value={newMenu.price}
+                          onChange={(e) => setNewMenu({...newMenu, price: e.target.value})}
+                          className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Stok</label>
+                        <input
+                          type="number"
+                          placeholder="Jumlah stok"
+                          value={newMenu.stock}
+                          onChange={(e) => setNewMenu({...newMenu, stock: e.target.value})}
+                          className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                          min="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Kategori</label>
+                      <select
+                        value={newMenu.category}
+                        onChange={(e) => setNewMenu({...newMenu, category: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                      >
+                        <option value="food">🍰 Makanan</option>
+                        <option value="drink">🥤 Minuman</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">URL Gambar (opsional)</label>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/image.jpg"
+                        value={newMenu.image}
+                        onChange={(e) => setNewMenu({...newMenu, image: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                      />
+                    </div>
+
                     <div className="flex space-x-3 pt-4">
                       <button type="submit" className="flex-1 py-3 bg-yellow-500 hover:bg-yellow-600 rounded-lg font-bold">
                         Simpan
                       </button>
-                      <button type="button" onClick={() => setShowAddMenu(false)} className="flex-1 py-3 bg-gray-700 rounded-lg">
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setShowAddMenu(false);
+                          setNewMenu({ name: '', description: '', price: '', category: 'food', image: '', stock: '' });
+                        }} 
+                        className="flex-1 py-3 bg-gray-700 rounded-lg"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* Edit Menu Modal */}
+            {showEditMenu && editingMenu && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md border border-gray-700 max-h-[90vh] overflow-y-auto">
+                  <h3 className="text-xl font-bold mb-4">Edit Menu</h3>
+                  <form onSubmit={handleEditMenu} className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Nama Menu</label>
+                      <input
+                        type="text"
+                        placeholder="Nama menu"
+                        value={editingMenu.name}
+                        onChange={(e) => setEditingMenu({...editingMenu, name: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Deskripsi</label>
+                      <textarea
+                        placeholder="Deskripsi menu"
+                        value={editingMenu.description || ''}
+                        onChange={(e) => setEditingMenu({...editingMenu, description: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Harga (Rp)</label>
+                        <input
+                          type="number"
+                          placeholder="Harga"
+                          value={editingMenu.price}
+                          onChange={(e) => setEditingMenu({...editingMenu, price: e.target.value})}
+                          className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Stok</label>
+                        <input
+                          type="number"
+                          placeholder="Jumlah stok"
+                          value={editingMenu.stock}
+                          onChange={(e) => setEditingMenu({...editingMenu, stock: e.target.value})}
+                          className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                          min="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Kategori</label>
+                      <select
+                        value={editingMenu.category}
+                        onChange={(e) => setEditingMenu({...editingMenu, category: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                      >
+                        <option value="food">🍰 Makanan</option>
+                        <option value="drink">🥤 Minuman</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">URL Gambar (opsional)</label>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/image.jpg"
+                        value={editingMenu.image || ''}
+                        onChange={(e) => setEditingMenu({...editingMenu, image: e.target.value})}
+                        className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                      />
+                    </div>
+
+                    <div className="flex space-x-3 pt-4">
+                      <button type="submit" className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold">
+                        Update
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          setShowEditMenu(false);
+                          setEditingMenu(null);
+                        }} 
+                        className="flex-1 py-3 bg-gray-700 rounded-lg"
+                      >
                         Batal
                       </button>
                     </div>

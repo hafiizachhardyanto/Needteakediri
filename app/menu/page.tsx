@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import FloatingLeaves from '@/components/FloatingLeaves';
@@ -31,11 +30,11 @@ export default function MenuPage() {
 
   const loadMenu = async () => {
     const result = await getMenuItems();
-   if (result.success && result.items) {
-  setMenuItems(result.items);
-} else {
-  setMenuItems([]);
-}
+    if (result.success && result.items) {
+      setMenuItems(result.items);
+    } else {
+      setMenuItems([]);
+    }
     setLoading(false);
   };
 
@@ -72,6 +71,17 @@ export default function MenuPage() {
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
+    
+    // Cek apakah user sudah login
+    if (!userData) {
+      // Simpan cart ke localStorage untuk redirect setelah login
+      localStorage.setItem('needtea_cart', JSON.stringify(cart));
+      localStorage.setItem('needtea_redirect_after_login', '/order');
+      alert('Silakan login terlebih dahulu untuk melanjutkan pemesanan');
+      router.push('/login?redirect=/order');
+      return;
+    }
+    
     localStorage.setItem('needtea_cart', JSON.stringify(cart));
     router.push('/order');
   };

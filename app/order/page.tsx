@@ -17,14 +17,22 @@ interface CartItem {
 
 export default function OrderPage() {
   const router = useRouter();
-  const { userData } = useAuth();
+  const { userData, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'shopeepay' | 'cash'>('cash');
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
+  // Cek login saat load
   useEffect(() => {
+    if (!authLoading && !userData) {
+      // Simpan cart dan redirect ke login
+      localStorage.setItem('needtea_redirect_after_login', '/order');
+      alert('Silakan login terlebih dahulu untuk melanjutkan pemesanan');
+      router.push('/login?redirect=/order');
+      return;
+    }
+
     const savedCart = localStorage.getItem('needtea_cart');
     if (savedCart) {
       setCart(JSON.parse(savedCart));
@@ -32,20 +40,20 @@ export default function OrderPage() {
       router.push('/menu');
     }
     
-    // Check expired orders periodically
+    // Cek expired orders periodically
     const interval = setInterval(() => {
       cancelExpiredOrders();
     }, 30000); // Check every 30 seconds
     
     return () => clearInterval(interval);
-  }, []);
+  }, [userData, authLoading, router]);
 
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const handleOrder = async () => {
     if (!userData) {
       alert('Silakan login terlebih dahulu');
-      router.push('/login');
+      router.push('/login?redirect=/order');
       return;
     }
 
@@ -64,31 +72,15 @@ export default function OrderPage() {
       })),
       totalAmount,
       paymentMethod,
-      shopeepayNumber: paymentMethod === 'shopeepay' ? '085702506241' : null
+      shopeepayNumber: paymentMethod === 'shopeepay' ? '085702506241' : undefined,
+      status: 'pending' as const // <-- TAMBAHAN: Tambahkan status pending
     };
 
     const result = await createOrder(orderData);
     
     if (result.success) {
       localStorage.removeItem('needtea_cart');
-      // Start countdown
-      if (result.expiryTime) {
-        const expiry = new Date(result.expiryTime);
-        const updateTimer = () => {
-          const now = new Date();
-          const diff = expiry.getTime() - now.getTime();
-          if (diff <= 0) {
-            alert('Waktu pembayaran habis! Silakan pesan ulang.');
-            router.push('/menu');
-            return;
-          }
-          setTimeLeft(Math.floor(diff / 1000));
-        };
-        updateTimer();
-        const timer = setInterval(updateTimer, 1000);
-        setTimeout(() => clearInterval(timer), 30 * 60 * 1000); // 30 minutes
-      }
-      router.push(`/order-success?orderId=${result.id}`);
+      router.push(`/order-success?orderId=${result.orderId}`); // <-- PERUBAHAN: Gunakan result.orderId bukan result.id
     } else {
       alert('Gagal membuat pesanan: ' + result.error);
     }
@@ -96,16 +88,23 @@ export default function OrderPage() {
     setLoading(false);
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const handleShopeePay = () => {
     window.open('https://shopee.co.id/m/shopeepay', '_blank');
     setPaymentMethod('shopeepay');
   };
+
+  if (authLoading) {
+    return (
+      <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
+        <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
+        <FloatingLeaves />
+        <div className="relative z-10 text-white text-center">
+          <div className="animate-spin h-12 w-12 border-4 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p>Memuat...</p>
+        </div>
+      </main>
+    );
+  }
 
   if (cart.length === 0) return null;
 
@@ -195,6 +194,7 @@ export default function OrderPage() {
               <div className="mt-4 p-4 bg-orange-500/20 border border-orange-400/30 rounded-xl">
                 <p className="text-orange-100 text-sm mb-2">Nomor ShopeePay:</p>
                 <p className="text-white text-xl font-bold">0857-0250-6241</p>
+                <p className="text-orange-200 text-sm mt-1">A/N: NeedTea Kediri</p>
                 <button
                   onClick={handleShopeePay}
                   className="mt-3 w-full py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition-all"
@@ -238,7 +238,7 @@ export default function OrderPage() {
               <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-3 mb-4">
                 <p className="text-yellow-800 text-sm">
                   ⚠️ Anda memiliki <span className="font-bold">30 menit</span> untuk menyelesaikan pembayaran. 
-                  Jika lewat, pesanan akan dibatalkan otomatis.
+                  Jika lewat, pesanan akan <span className="font-bold text-red-600">dibatalkan otomatis</span>.
                 </p>
               </div>
               

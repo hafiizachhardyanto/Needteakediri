@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function OrderSuccessContent() {
@@ -17,7 +17,10 @@ export default function OrderSuccessContent() {
   const [status, setStatus] = useState<string>('pending');
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId) {
+      router.push('/menu');
+      return;
+    }
 
     // Subscribe realtime ke order
     const unsubscribe = onSnapshot(doc(db, 'orders', orderId), (docSnap) => {
@@ -38,6 +41,9 @@ export default function OrderSuccessContent() {
           const diff = Math.floor((expiry.getTime() - now.getTime()) / 1000);
           setTimeLeft(Math.max(0, diff));
         }
+      } else {
+        // Order tidak ditemukan
+        router.push('/menu');
       }
     });
 
@@ -45,9 +51,8 @@ export default function OrderSuccessContent() {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          // Waktu habis, redirect ke menu
-          alert('Waktu pembayaran habis! Silakan pesan ulang.');
-          router.push('/menu');
+          // Waktu habis, batalkan order
+          handleCancelOrder();
           return 0;
         }
         return prev - 1;
@@ -60,12 +65,30 @@ export default function OrderSuccessContent() {
     };
   }, [orderId, router]);
 
+  const handleCancelOrder = async () => {
+    if (!orderId) return;
+    
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: 'cancelled',
+        cancelledAt: serverTimestamp(),
+        cancelReason: 'Waktu pembayaran habis (30 menit)'
+      });
+      
+      alert('Waktu pembayaran habis! Silakan pesan ulang.');
+      router.push('/menu');
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Status: Cancelled
   if (status === 'cancelled') {
     return (
       <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
@@ -91,6 +114,7 @@ export default function OrderSuccessContent() {
     );
   }
 
+  // Status: Completed
   if (status === 'completed') {
     return (
       <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
@@ -103,7 +127,7 @@ export default function OrderSuccessContent() {
             <div className="text-6xl mb-4">🎉</div>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Pesanan Selesai!</h1>
             <p className="text-gray-600 mb-6">
-              Pesanan Anda telah selesai diproses. Terima kasih!
+              Pembayaran berhasil dikonfirmasi. Pesanan Anda sedang diproses.
             </p>
             <Link href="/">
               <button className="w-full py-3 bg-tea-600 text-white rounded-xl font-bold hover:bg-tea-700 transition-all">
@@ -116,6 +140,7 @@ export default function OrderSuccessContent() {
     );
   }
 
+  // Status: Pending (default)
   return (
     <main className="min-h-screen relative overflow-hidden">
       <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
@@ -155,6 +180,14 @@ export default function OrderSuccessContent() {
                   <div className="mt-3 p-3 bg-orange-100 rounded-lg">
                     <p className="text-sm text-orange-800">Transfer ke:</p>
                     <p className="text-lg font-bold text-orange-600">0857-0250-6241</p>
+                    <p className="text-xs text-orange-600 mt-1">A/N: NeedTea Kediri</p>
+                  </div>
+                )}
+                
+                {order.paymentMethod === 'cash' && (
+                  <div className="mt-3 p-3 bg-blue-100 rounded-lg">
+                    <p className="text-sm text-blue-800">Bayar di tempat:</p>
+                    <p className="text-sm text-blue-600">Tunjukkan Order ID saat pengambilan</p>
                   </div>
                 )}
               </div>
@@ -163,7 +196,7 @@ export default function OrderSuccessContent() {
             <div className="space-y-3">
               <p className="text-gray-600 text-sm">
                 Silakan selesaikan pembayaran sebelum waktu habis.
-                Pesanan akan diproses setelah pembayaran dikonfirmasi.
+                Pesanan akan <span className="font-bold text-red-500">dibatalkan otomatis</span> jika melebihi 30 menit.
               </p>
               
               <Link href="/menu">
