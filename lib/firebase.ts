@@ -48,13 +48,36 @@ const db = getFirestore(app);
 export { app, auth, db };
 
 // ==========================================
-// EMAIL LINK AUTHENTICATION (TAMBAHAN BARU)
+// KONFIGURASI URL DINAMIS
 // ==========================================
 
+// ✅ PERBAIKAN: Gunakan environment variable atau deteksi otomatis
+const getBaseUrl = () => {
+  // Prioritas 1: Environment variable (untuk production)
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return process.env.NEXT_PUBLIC_APP_URL;
+  }
+  
+  // Prioritas 2: Deteksi window location (client-side)
+  if (typeof window !== 'undefined') {
+    // Jika bukan localhost, gunakan origin asli
+    if (!window.location.origin.includes('localhost')) {
+      return window.location.origin;
+    }
+  }
+  
+  // Prioritas 3: Fallback ke localhost (development)
+  return 'http://localhost:3000';
+};
+
 const actionCodeSettings = {
-  url: typeof window !== 'undefined' ? window.location.origin + '/login' : 'http://localhost:3000/login',
+  url: `${getBaseUrl()}/login`,
   handleCodeInApp: true,
 };
+
+// ==========================================
+// EMAIL LINK AUTHENTICATION
+// ==========================================
 
 export const sendEmailLink = async (email: string) => {
   try {
@@ -70,19 +93,17 @@ export const checkSignInLink = (url: string) => {
   return isSignInWithEmailLink(auth, url);
 };
 
-// ✅ PERBAIKAN: Tambahkan isNewUser di return value
 export const completeSignInWithLink = async (email: string, url: string) => {
   try {
     const result = await signInWithEmailLink(auth, email, url);
     window.localStorage.removeItem('emailForSignIn');
     
-    // ✅ TAMBAHAN: Cek apakah user baru
     const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
     
     return { 
       success: true, 
       user: result.user,
-      isNewUser: isNewUser  // ✅ TAMBAH INI
+      isNewUser: isNewUser
     };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -205,7 +226,6 @@ export const addMenuItem = async (data: {
   stock: number;
 }) => {
   try {
-    // Validasi dan konversi category
     const validCategory: CategoryType = data.category === 'drink' ? 'drink' : 'food';
     
     const docRef = await addDoc(collection(db, 'menuItems'), {
@@ -233,7 +253,6 @@ export const updateMenuItem = async (id: string, data: Partial<{
     const itemRef = doc(db, 'menuItems', id);
     const updateData: any = { ...data, updatedAt: serverTimestamp() };
     
-    // Validasi category jika ada
     if (data.category) {
       updateData.category = data.category === 'drink' ? 'drink' : 'food';
     }
@@ -268,7 +287,7 @@ export interface OrderItem {
 }
 
 export type OrderStatus = 'pending' | 'completed' | 'cancelled';
-export type PaymentMethod = 'cash' | 'shopeepay';
+export type PaymentMethod = 'cash' | 'shopeepay' | 'manual';
 
 export interface Order {
   id?: string;
@@ -282,6 +301,8 @@ export interface Order {
   createdAt?: Timestamp;
   expiryTime?: Timestamp;
   completedAt?: Timestamp;
+  isManualOrder?: boolean;
+  notes?: string;
 }
 
 export const createOrder = async (orderData: {
@@ -292,6 +313,8 @@ export const createOrder = async (orderData: {
   paymentMethod: PaymentMethod;
   shopeepayNumber?: string;
   status?: OrderStatus;
+  isManualOrder?: boolean;
+  notes?: string;
 }) => {
   try {
     const expiryTime = new Date();

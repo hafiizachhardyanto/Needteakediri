@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { auth, db } from '@/lib/firebase';
+import { auth, db, logoutUser } from '@/lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
-// ✅ Ubah ke default export
 export default function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<any>(null);
@@ -21,7 +20,6 @@ export default function useAuth() {
           setUserData(userDoc.data());
         }
       } else {
-        // Cek localStorage
         const stored = localStorage.getItem('needtea_user');
         if (stored) {
           const parsed = JSON.parse(stored);
@@ -38,8 +36,17 @@ export default function useAuth() {
     return () => unsubscribe();
   }, []);
 
+  const logout = async () => {
+    const result = await logoutUser();
+    if (result.success) {
+      setUser(null);
+      setUserData(null);
+    }
+    return result;
+  };
+
   const isAdmin = userData?.role === 'admin';
   const isUser = userData?.role === 'user';
 
-  return { user, userData, loading, isAdmin, isUser };
+  return { user, userData, loading, isAdmin, isUser, logout };
 }
