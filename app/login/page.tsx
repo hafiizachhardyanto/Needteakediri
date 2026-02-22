@@ -6,93 +6,45 @@ import Link from 'next/link';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
 import { 
-  sendEmailLink, 
-  checkSignInLink, 
-  completeSignInWithLink, 
-  saveUserToFirestore, 
-  checkUserExists 
+  saveOTP, 
+  loginWithOTP, 
+  checkUserExists,
+  saveUserToFirestoreSafe
 } from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { userData, isAdmin } = useAuth();
+  const { userData, isAdmin, loading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [step, setStep] = useState<'email' | 'otp'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [countdown, setCountdown] = useState(60);
 
-  // ✅ PERBAIKAN: Redirect jika sudah login (cek admin dulu)
+  // Redirect jika sudah login
   useEffect(() => {
-    if (!loading && userData) {
-      // Jika admin, langsung ke /admin
+    if (!authLoading && userData) {
       if (isAdmin) {
         router.push('/admin');
-        return;
-      }
-      
-      // Jika user biasa, ke redirect atau home
-      const redirect = searchParams.get('redirect') || '/';
-      const savedCart = localStorage.getItem('needtea_cart');
-      
-      if (savedCart && redirect === '/order') {
-        router.push('/order');
       } else {
+        const redirect = searchParams.get('redirect') || '/';
         router.push(redirect);
       }
     }
-  }, [userData, isAdmin, loading, router, searchParams]);
+  }, [userData, isAdmin, authLoading, router, searchParams]);
 
-  // Check if this is email link callback
+  // Countdown untuk resend OTP
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const url = window.location.href;
-      if (checkSignInLink(url)) {
-        const emailFromStorage = window.localStorage.getItem('emailForSignIn');
-        if (emailFromStorage) {
-          handleCompleteSignIn(emailFromStorage, url);
-        }
-      }
+    if (step === 'otp' && countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
     }
-  }, []);
+  }, [countdown, step]);
 
-  const handleCompleteSignIn = async (email: string, url: string) => {
-    setLoading(true);
-    const result = await completeSignInWithLink(email, url);
-    
-    if (result.success && result.user) {
-      const uid = result.user.uid;
-      const isNewUser = result.user.metadata?.creationTime === result.user.metadata?.lastSignInTime;
-      
-      await saveUserToFirestore(email, {
-        name: email.split('@')[0],
-        uid: uid,
-        isNewUser: isNewUser
-      });
-      
-      localStorage.setItem('needtea_user', JSON.stringify({
-        email: email,
-        uid: uid,
-        isLoggedIn: true,
-        loginTime: new Date().toISOString()
-      }));
-      
-      // ✅ PERBAIKAN: Cek role admin dari database
-      const userCheck = await checkUserExists(email);
-      if (userCheck.exists && userCheck.userData?.role === 'admin') {
-        router.push('/admin'); // Admin langsung ke dashboard
-      } else {
-        const redirect = searchParams.get('redirect') || '/';
-        router.push(redirect); // User biasa ke redirect normal
-      }
-    } else {
-      setError('Link tidak valid atau sudah kadaluarsa.');
-      setLoading(false);
-    }
-  };
-
-  const handleSendLink = async (e: React.FormEvent) => {
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.includes('@')) {
       setError('Email tidak valid');
@@ -102,15 +54,95 @@ function LoginContent() {
     setLoading(true);
     setError('');
     
-    const result = await sendEmailLink(email);
-    
-    if (result.success) {
-      setStep('otp');
-    } else {
-      setError(result.error || 'Gagal mengirim email');
+    try {
+      // Generate OTP 6 digit
+      const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      // Simpan OTP ke Firestore
+      const result = await saveOTP(email, generatedOTP);
+      
+      if (result.success) {
+        // TODO: Kirim email dengan OTP (gunakan EmailJS atau backend)
+        // Untuk development, tampilkan OTP di console
+        console.log('OTP untuk', email, ':', generatedOTP);
+        
+        // Simulasi kirim email (ganti dengan integrasi email service)
+        alert(`Kode OTP Anda: ${generatedOTP}\n\n(Di production, kode ini akan dikirim via email)`);
+        
+        setStep('otp');
+        setCountdown(60);
+      } else {
+        setError(result.error || 'Gagal mengirim OTP');
+      }
+    } catch (err: any) {
+      setError('Terjadi kesalahan. Coba lagi.');
     }
     
     setLoading(false);
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const otpString = otp.join('');
+    
+    if (otpString.length !== 6) {
+      setError('Masukkan 6 digit kode OTP');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    
+    const result = await loginWithOTP(email, otpString);
+    
+    if (result.success) {
+      // Redirect berdasarkan role
+      if (result.userData?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        const redirect = searchParams.get('redirect') || '/';
+        router.push(redirect);
+      }
+    } else {
+      setError(result.error || 'Verifikasi gagal');
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    setLoading(true);
+    const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+    const result = await saveOTP(email, generatedOTP);
+    
+    if (result.success) {
+      console.log('OTP baru untuk', email, ':', generatedOTP);
+      alert(`Kode OTP baru Anda: ${generatedOTP}`);
+      setCountdown(60);
+      setOtp(['', '', '', '', '', '']);
+    }
+    
+    setLoading(false);
+  };
+
+  const handleOtpChange = (index: number, value: string) => {
+    if (value.length > 1) return; // Hanya 1 karakter per box
+    
+    const newOtp = [...otp];
+    newOtp[index] = value;
+    setOtp(newOtp);
+    
+    // Auto focus ke box berikutnya
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      const prevInput = document.getElementById(`otp-${index - 1}`);
+      prevInput?.focus();
+    }
   };
 
   return (
@@ -128,8 +160,14 @@ function LoginContent() {
               <span className="text-2xl font-bold text-white">NeedTea</span>
             </Link>
             
-            <h1 className="text-3xl font-bold text-white mb-2">Masuk</h1>
-            <p className="text-white/80">Login dengan email Anda</p>
+            <h1 className="text-3xl font-bold text-white mb-2">
+              {step === 'email' ? 'Masuk' : 'Verifikasi OTP'}
+            </h1>
+            <p className="text-white/80">
+              {step === 'email' 
+                ? 'Masukkan email Anda' 
+                : `Masukkan 6 digit kode yang dikirim ke ${email}`}
+            </p>
           </div>
 
           {error && (
@@ -139,7 +177,7 @@ function LoginContent() {
           )}
 
           {step === 'email' ? (
-            <form onSubmit={handleSendLink} className="space-y-6">
+            <form onSubmit={handleSendOTP} className="space-y-6">
               <div>
                 <label className="block text-white text-sm font-medium mb-2">
                   Alamat Email
@@ -149,7 +187,7 @@ function LoginContent() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nama@email.com"
-                  className="w-full px-4 py-3 bg-gray-700 rounded-lg text-white"
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50"
                   required
                 />
               </div>
@@ -157,9 +195,9 @@ function LoginContent() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50"
+                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Mengirim...' : 'Kirim Link Login'}
+                {loading ? 'Mengirim...' : 'Kirim Kode OTP'}
               </button>
 
               <div className="text-center">
@@ -172,23 +210,63 @@ function LoginContent() {
               </div>
             </form>
           ) : (
-            <div className="text-center space-y-6">
-              <div className="bg-green-500/20 border border-green-400/30 rounded-xl p-4">
-                <p className="text-green-100 text-sm">
-                  Link login telah dikirim ke <span className="font-bold">{email}</span>
-                </p>
-                <p className="text-green-200 text-xs mt-2">
-                  Cek inbox atau spam folder Anda
-                </p>
+            <form onSubmit={handleVerifyOTP} className="space-y-6">
+              <div>
+                <label className="block text-white text-sm font-medium mb-4 text-center">
+                  Kode OTP 6 Digit
+                </label>
+                <div className="flex justify-center space-x-3">
+                  {otp.map((digit, index) => (
+                    <input
+                      key={index}
+                      id={`otp-${index}`}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleOtpChange(index, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                      className="w-12 h-14 bg-white/10 border border-white/20 rounded-xl text-white text-center text-2xl font-bold focus:outline-none focus:border-white/50 focus:bg-white/20"
+                    />
+                  ))}
+                </div>
               </div>
-              
+
               <button
-                onClick={() => setStep('email')}
-                className="text-white/60 hover:text-white text-sm underline"
+                type="submit"
+                disabled={loading || otp.join('').length !== 6}
+                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Gunakan email lain
+                {loading ? 'Memverifikasi...' : 'Verifikasi'}
               </button>
-            </div>
+
+              <div className="text-center space-y-3">
+                {countdown > 0 ? (
+                  <p className="text-white/60 text-sm">
+                    Kirim ulang kode dalam {countdown} detik
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendOTP}
+                    disabled={loading}
+                    className="text-white font-semibold text-sm underline hover:text-yellow-300"
+                  >
+                    Kirim Ulang Kode
+                  </button>
+                )}
+                
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setStep('email')}
+                    className="text-white/60 hover:text-white text-sm"
+                  >
+                    Gunakan email lain
+                  </button>
+                </div>
+              </div>
+            </form>
           )}
         </div>
       </div>

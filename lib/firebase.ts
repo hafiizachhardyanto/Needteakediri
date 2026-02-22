@@ -51,22 +51,17 @@ export { app, auth, db };
 // KONFIGURASI URL DINAMIS
 // ==========================================
 
-// ✅ PERBAIKAN: Gunakan environment variable atau deteksi otomatis
 const getBaseUrl = () => {
-  // Prioritas 1: Environment variable (untuk production)
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL;
   }
   
-  // Prioritas 2: Deteksi window location (client-side)
   if (typeof window !== 'undefined') {
-    // Jika bukan localhost, gunakan origin asli
     if (!window.location.origin.includes('localhost')) {
       return window.location.origin;
     }
   }
   
-  // Prioritas 3: Fallback ke localhost (development)
   return 'http://localhost:3000';
 };
 
@@ -76,7 +71,121 @@ const actionCodeSettings = {
 };
 
 // ==========================================
-// EMAIL LINK AUTHENTICATION
+// OTP AUTHENTICATION (BARU)
+// ==========================================
+
+// Generate OTP 6 digit
+export const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Simpan OTP ke Firestore (dengan expiry 5 menit)
+export const saveOTP = async (email: string, otp: string) => {
+  try {
+    const otpRef = doc(db, 'otp_codes', email);
+    await setDoc(otpRef, {
+      email,
+      otp,
+      createdAt: serverTimestamp(),
+      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)), // 5 menit
+      used: false
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Verifikasi OTP
+export const verifyOTP = async (email: string, inputOTP: string) => {
+  try {
+    const otpRef = doc(db, 'otp_codes', email);
+    const otpDoc = await getDoc(otpRef);
+    
+    if (!otpDoc.exists()) {
+      return { success: false, error: 'OTP tidak ditemukan' };
+    }
+    
+    const otpData = otpDoc.data();
+    const now = Timestamp.now();
+    
+    // Cek expiry
+    if (otpData.expiresAt.toDate() < now.toDate()) {
+      return { success: false, error: 'OTP sudah kadaluarsa' };
+    }
+    
+    // Cek sudah digunakan
+    if (otpData.used) {
+      return { success: false, error: 'OTP sudah digunakan' };
+    }
+    
+    // Cek kecocokan
+    if (otpData.otp !== inputOTP) {
+      return { success: false, error: 'OTP tidak valid' };
+    }
+    
+    // Tandai sebagai used
+    await updateDoc(otpRef, { used: true });
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Login dengan OTP (tidak overwrite data existing)
+export const loginWithOTP = async (email: string, otp: string) => {
+  try {
+    // Verifikasi OTP
+    const verifyResult = await verifyOTP(email, otp);
+    if (!verifyResult.success) {
+      return verifyResult;
+    }
+    
+    // Cek user exists
+    const userCheck = await checkUserExists(email);
+    
+    // Jika user baru, buat dengan role 'user' (bukan admin)
+    if (!userCheck.exists) {
+      await saveUserToFirestoreSafe(email, {
+        email,
+        name: email.split('@')[0],
+        role: 'user', // Default selalu user
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+      });
+    } else {
+      // Jika user sudah ada, hanya update lastLogin, JANGAN ubah role
+      await updateDoc(doc(db, 'users', email), {
+        lastLogin: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+    
+    // Ambil data user terbaru
+    const userDoc = await getDoc(doc(db, 'users', email));
+    const userData = userDoc.data();
+    
+    // Simpan ke localStorage
+    localStorage.setItem('needtea_user', JSON.stringify({
+      email,
+      ...userData,
+      isLoggedIn: true,
+      loginTime: new Date().toISOString()
+    }));
+    
+    return { 
+      success: true, 
+      userData,
+      isNewUser: !userCheck.exists 
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// ==========================================
+// EMAIL LINK AUTHENTICATION (LEGACY - OPSIONAL)
 // ==========================================
 
 export const sendEmailLink = async (email: string) => {
@@ -100,6 +209,14 @@ export const completeSignInWithLink = async (email: string, url: string) => {
     
     const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
     
+    // Gunakan fungsi safe yang tidak overwrite role
+    await saveUserToFirestoreSafe(email, {
+      email: result.user.email,
+      name: result.user.displayName || email.split('@')[0],
+      emailVerified: result.user.emailVerified,
+      lastLogin: serverTimestamp(),
+    });
+    
     return { 
       success: true, 
       user: result.user,
@@ -119,12 +236,88 @@ export const checkUserExists = async (email: string) => {
   }
 };
 
+// ==========================================
+// USER MANAGEMENT - SAFE UPDATE (PROTEKSI ADMIN)
+// ==========================================
+
 export const saveUserToFirestore = async (email: string, userData: any) => {
   try {
     await setDoc(doc(db, 'users', email), {
       ...userData,
       email,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// FUNGSI PENTING: Save user dengan proteksi role
+export const saveUserToFirestoreSafe = async (email: string, userData: any) => {
+  try {
+    const userRef = doc(db, 'users', email);
+    const userDoc = await getDoc(userRef);
+    
+    // Jika user sudah ada, PERTAHANKAN ROLE EXISTING
+    if (userDoc.exists()) {
+      const existingData = userDoc.data();
+      
+      // Update hanya field yang diizinkan, jangan sentuh role!
+      const safeUpdate = {
+        ...userData,
+        role: existingData.role, // PERTAHANKAN ROLE!
+        createdAt: existingData.createdAt,
+        updatedAt: serverTimestamp(),
+      };
+      
+      await updateDoc(userRef, safeUpdate);
+      return { success: true, isNewUser: false, role: existingData.role };
+    } else {
+      // User baru, set role default 'user'
+      await setDoc(userRef, {
+        ...userData,
+        role: userData.role || 'user', // Default 'user' jika tidak specified
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      return { success: true, isNewUser: true, role: userData.role || 'user' };
+    }
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Update profile tanpa mengubah role
+export const updateUserProfile = async (email: string, profileData: any) => {
+  try {
+    const userRef = doc(db, 'users', email);
+    
+    // Hanya update field profile, jangan sentuh role
+    const allowedFields = ['name', 'phone', 'address', 'avatar', 'updatedAt'];
+    const safeUpdate: any = {};
+    
+    allowedFields.forEach(field => {
+      if (profileData[field] !== undefined) {
+        safeUpdate[field] = profileData[field];
+      }
+    });
+    
+    safeUpdate.updatedAt = serverTimestamp();
+    
+    await updateDoc(userRef, safeUpdate);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Set role admin (hanya untuk admin yang sudah login)
+export const setUserRole = async (email: string, role: 'user' | 'admin') => {
+  try {
+    await updateDoc(doc(db, 'users', email), {
+      role,
       updatedAt: serverTimestamp()
     });
     return { success: true };
@@ -286,7 +479,7 @@ export interface OrderItem {
   image?: string;
 }
 
-export type OrderStatus = 'pending' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'completed' | 'cancelled' | 'draft';
 export type PaymentMethod = 'cash' | 'shopeepay' | 'manual';
 
 export interface Order {
@@ -305,6 +498,131 @@ export interface Order {
   notes?: string;
 }
 
+// ==========================================
+// MANUAL ORDER FUNCTIONS (BARU)
+// ==========================================
+
+// Simpan pesanan manual sebagai draft (belum masuk antrian)
+export const createManualOrderDraft = async (orderData: {
+  customerName: string;
+  items: OrderItem[];
+  totalAmount: number;
+  notes?: string;
+}) => {
+  try {
+    const docRef = await addDoc(collection(db, 'manualOrders'), {
+      ...orderData,
+      status: 'draft',
+      isManualOrder: true,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || 'unknown',
+    });
+    
+    return { success: true, orderId: docRef.id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Ambil semua pesanan manual (draft)
+export const getManualOrderDrafts = async () => {
+  try {
+    const q = query(
+      collection(db, 'manualOrders'),
+      where('status', '==', 'draft'),
+      orderBy('createdAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    
+    return { success: true, orders };
+  } catch (error: any) {
+    return { success: false, error: error.message, orders: [] };
+  }
+};
+
+// Konfirmasi pesanan manual -> pindah ke antrian (orders)
+export const confirmManualOrder = async (manualOrderId: string) => {
+  try {
+    // Ambil data manual order
+    const manualOrderRef = doc(db, 'manualOrders', manualOrderId);
+    const manualOrderDoc = await getDoc(manualOrderRef);
+    
+    if (!manualOrderDoc.exists()) {
+      return { success: false, error: 'Pesanan manual tidak ditemukan' };
+    }
+    
+    const manualOrderData = manualOrderDoc.data();
+    
+    // Buat expiry time 30 menit
+    const expiryTime = new Date();
+    expiryTime.setMinutes(expiryTime.getMinutes() + 30);
+    
+    // Buat order baru di collection orders (masuk antrian)
+    const orderRef = await addDoc(collection(db, 'orders'), {
+      userName: manualOrderData.customerName,
+      userEmail: 'manual-order@admin.local',
+      items: manualOrderData.items,
+      totalAmount: manualOrderData.totalAmount,
+      status: 'pending',
+      paymentMethod: 'manual',
+      createdAt: serverTimestamp(),
+      expiryTime: Timestamp.fromDate(expiryTime),
+      notes: manualOrderData.notes,
+      isManualOrder: true,
+      manualOrderId: manualOrderId,
+    });
+    
+    // Update status manual order menjadi confirmed
+    await updateDoc(manualOrderRef, {
+      status: 'confirmed',
+      confirmedAt: serverTimestamp(),
+      orderId: orderRef.id,
+    });
+    
+    return { success: true, orderId: orderRef.id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Batalkan pesanan manual
+export const cancelManualOrder = async (manualOrderId: string) => {
+  try {
+    await updateDoc(doc(db, 'manualOrders', manualOrderId), {
+      status: 'cancelled',
+      cancelledAt: serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Subscribe ke pesanan manual realtime
+export const subscribeToManualOrders = (callback: (orders: any[]) => void) => {
+  const q = query(
+    collection(db, 'manualOrders'),
+    where('status', '==', 'draft'),
+    orderBy('createdAt', 'desc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    callback(orders);
+  });
+};
+
+// ==========================================
+// REGULAR ORDER FUNCTIONS
+// ==========================================
+
 export const createOrder = async (orderData: {
   userEmail: string;
   userName: string;
@@ -313,8 +631,6 @@ export const createOrder = async (orderData: {
   paymentMethod: PaymentMethod;
   shopeepayNumber?: string;
   status?: OrderStatus;
-  isManualOrder?: boolean;
-  notes?: string;
 }) => {
   try {
     const expiryTime = new Date();

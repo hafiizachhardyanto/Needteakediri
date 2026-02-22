@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { auth, db, logoutUser } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -15,11 +15,25 @@ export default function useAuth() {
       setUser(firebaseUser);
       
       if (firebaseUser?.email) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.email));
+        const userRef = doc(db, 'users', firebaseUser.email);
+        const userDoc = await getDoc(userRef);
+        
         if (userDoc.exists()) {
-          setUserData(userDoc.data());
+          const data = userDoc.data();
+          setUserData(data);
+          
+          // Update lastLogin saja, jangan overwrite data lain
+          await updateDoc(userRef, {
+            lastLogin: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          // User baru dari Firebase Auth tapi belum ada di Firestore
+          // Jangan buat dokumen baru otomatis, biarkan flow registrasi yang handle
+          setUserData(null);
         }
       } else {
+        // Cek localStorage sebagai fallback
         const stored = localStorage.getItem('needtea_user');
         if (stored) {
           const parsed = JSON.parse(stored);
@@ -36,17 +50,8 @@ export default function useAuth() {
     return () => unsubscribe();
   }, []);
 
-  const logout = async () => {
-    const result = await logoutUser();
-    if (result.success) {
-      setUser(null);
-      setUserData(null);
-    }
-    return result;
-  };
-
   const isAdmin = userData?.role === 'admin';
   const isUser = userData?.role === 'user';
 
-  return { user, userData, loading, isAdmin, isUser, logout };
+  return { user, userData, loading, isAdmin, isUser };
 }
