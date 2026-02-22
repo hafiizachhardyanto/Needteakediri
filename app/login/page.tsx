@@ -9,6 +9,7 @@ import {
   saveOTP, 
   loginWithOTP
 } from '@/lib/firebase';
+import { sendOTPEmail } from '@/lib/emailjs';
 import useAuth from '@/hooks/useAuth';
 
 function LoginContent() {
@@ -20,6 +21,7 @@ function LoginContent() {
   const [step, setStep] = useState<'email' | 'otp'>('email');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [countdown, setCountdown] = useState(60);
 
   // Redirect jika sudah login
@@ -51,6 +53,7 @@ function LoginContent() {
     
     setLoading(true);
     setError('');
+    setSuccessMessage('');
     
     try {
       // Generate OTP 6 digit
@@ -60,20 +63,27 @@ function LoginContent() {
       const result = await saveOTP(email, generatedOTP);
       
       if (result.success) {
-        // TODO: Kirim email dengan OTP (gunakan EmailJS atau backend)
-        // Untuk development, tampilkan OTP di console
-        console.log('OTP untuk', email, ':', generatedOTP);
-        
-        // Simulasi kirim email (ganti dengan integrasi email service)
-        alert(`Kode OTP Anda: ${generatedOTP}\n\n(Di production, kode ini akan dikirim via email)`);
-        
-        setStep('otp');
-        setCountdown(60);
+        // Kirim email dengan OTP
+        const emailResult = await sendOTPEmail({
+          to_email: email,
+          to_name: email.split('@')[0],
+          otp_code: generatedOTP,
+          expiry_time: '5 menit'
+        });
+
+        if (emailResult.success) {
+          setSuccessMessage('Kode OTP telah dikirim ke email Anda. Silakan cek inbox/spam.');
+          setStep('otp');
+          setCountdown(60);
+        } else {
+          setError('Gagal mengirim email: ' + emailResult.error);
+        }
       } else {
         setError(result.error || 'Gagal mengirim OTP');
       }
     } catch (err: any) {
       setError('Terjadi kesalahan. Coba lagi.');
+      console.error('Send OTP Error:', err);
     }
     
     setLoading(false);
@@ -109,16 +119,35 @@ function LoginContent() {
 
   const handleResendOTP = async () => {
     setLoading(true);
-    const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
-    const result = await saveOTP(email, generatedOTP);
+    setError('');
+    setSuccessMessage('');
     
-    if (result.success) {
-      console.log('OTP baru untuk', email, ':', generatedOTP);
-      alert(`Kode OTP baru Anda: ${generatedOTP}`);
-      setCountdown(60);
-      setOtp(['', '', '', '', '', '']);
-    } else {
-      setError(result.error || 'Gagal mengirim ulang OTP');
+    try {
+      const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+      const result = await saveOTP(email, generatedOTP);
+      
+      if (result.success) {
+        // Kirim ulang email
+        const emailResult = await sendOTPEmail({
+          to_email: email,
+          to_name: email.split('@')[0],
+          otp_code: generatedOTP,
+          expiry_time: '5 menit'
+        });
+
+        if (emailResult.success) {
+          setSuccessMessage('Kode OTP baru telah dikirim ke email Anda');
+          setCountdown(60);
+          setOtp(['', '', '', '', '', '']);
+        } else {
+          setError('Gagal mengirim ulang: ' + emailResult.error);
+        }
+      } else {
+        setError(result.error || 'Gagal mengirim ulang OTP');
+      }
+    } catch (err: any) {
+      setError('Terjadi kesalahan saat mengirim ulang.');
+      console.error('Resend OTP Error:', err);
     }
     
     setLoading(false);
@@ -173,6 +202,12 @@ function LoginContent() {
           {error && (
             <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-4 mb-6 text-center">
               <p className="text-red-100 text-sm">{error}</p>
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="bg-green-500/20 border border-green-400/30 rounded-xl p-4 mb-6 text-center">
+              <p className="text-green-100 text-sm">{successMessage}</p>
             </div>
           )}
 
@@ -252,14 +287,19 @@ function LoginContent() {
                     disabled={loading}
                     className="text-white font-semibold text-sm underline hover:text-yellow-300"
                   >
-                    Kirim Ulang Kode
+                    {loading ? 'Mengirim...' : 'Kirim Ulang Kode'}
                   </button>
                 )}
                 
                 <div>
                   <button
                     type="button"
-                    onClick={() => setStep('email')}
+                    onClick={() => {
+                      setStep('email');
+                      setOtp(['', '', '', '', '', '']);
+                      setError('');
+                      setSuccessMessage('');
+                    }}
                     className="text-white/60 hover:text-white text-sm"
                   >
                     Gunakan email lain
