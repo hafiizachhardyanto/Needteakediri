@@ -26,7 +26,8 @@ import {
   orderBy, 
   onSnapshot,
   Timestamp,
-  serverTimestamp
+  serverTimestamp,
+  DocumentData
 } from "firebase/firestore";
 
 // Your web app's Firebase configuration
@@ -80,7 +81,7 @@ export const generateOTP = () => {
 };
 
 // Simpan OTP ke Firestore (dengan expiry 5 menit)
-export const saveOTP = async (email: string, otp: string) => {
+export const saveOTP = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
   try {
     const otpRef = doc(db, 'otp_codes', email);
     await setDoc(otpRef, {
@@ -97,7 +98,7 @@ export const saveOTP = async (email: string, otp: string) => {
 };
 
 // Verifikasi OTP
-export const verifyOTP = async (email: string, inputOTP: string) => {
+export const verifyOTP = async (email: string, inputOTP: string): Promise<{ success: boolean; error?: string }> => {
   try {
     const otpRef = doc(db, 'otp_codes', email);
     const otpDoc = await getDoc(otpRef);
@@ -134,12 +135,20 @@ export const verifyOTP = async (email: string, inputOTP: string) => {
 };
 
 // Login dengan OTP (tidak overwrite data existing)
-export const loginWithOTP = async (email: string, otp: string) => {
+export const loginWithOTP = async (email: string, otp: string): Promise<{
+  success: boolean;
+  error?: string;
+  userData?: DocumentData;
+  isNewUser?: boolean;
+}> => {
   try {
     // Verifikasi OTP
     const verifyResult = await verifyOTP(email, otp);
     if (!verifyResult.success) {
-      return verifyResult;
+      return { 
+        success: false, 
+        error: verifyResult.error || 'Verifikasi OTP gagal'
+      };
     }
     
     // Cek user exists
@@ -147,13 +156,20 @@ export const loginWithOTP = async (email: string, otp: string) => {
     
     // Jika user baru, buat dengan role 'user' (bukan admin)
     if (!userCheck.exists) {
-      await saveUserToFirestoreSafe(email, {
+      const saveResult = await saveUserToFirestoreSafe(email, {
         email,
         name: email.split('@')[0],
         role: 'user', // Default selalu user
         createdAt: serverTimestamp(),
         lastLogin: serverTimestamp(),
       });
+      
+      if (!saveResult.success) {
+        return {
+          success: false,
+          error: saveResult.error || 'Gagal menyimpan data user'
+        };
+      }
     } else {
       // Jika user sudah ada, hanya update lastLogin, JANGAN ubah role
       await updateDoc(doc(db, 'users', email), {
@@ -180,7 +196,10 @@ export const loginWithOTP = async (email: string, otp: string) => {
       isNewUser: !userCheck.exists 
     };
   } catch (error: any) {
-    return { success: false, error: error.message };
+    return { 
+      success: false, 
+      error: error.message || 'Terjadi kesalahan saat login'
+    };
   }
 };
 
@@ -188,7 +207,7 @@ export const loginWithOTP = async (email: string, otp: string) => {
 // EMAIL LINK AUTHENTICATION (LEGACY - OPSIONAL)
 // ==========================================
 
-export const sendEmailLink = async (email: string) => {
+export const sendEmailLink = async (email: string): Promise<{ success: boolean; error?: string }> => {
   try {
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     window.localStorage.setItem('emailForSignIn', email);
@@ -198,11 +217,16 @@ export const sendEmailLink = async (email: string) => {
   }
 };
 
-export const checkSignInLink = (url: string) => {
+export const checkSignInLink = (url: string): boolean => {
   return isSignInWithEmailLink(auth, url);
 };
 
-export const completeSignInWithLink = async (email: string, url: string) => {
+export const completeSignInWithLink = async (email: string, url: string): Promise<{
+  success: boolean;
+  error?: string;
+  user?: User;
+  isNewUser?: boolean;
+}> => {
   try {
     const result = await signInWithEmailLink(auth, email, url);
     window.localStorage.removeItem('emailForSignIn');
@@ -227,12 +251,12 @@ export const completeSignInWithLink = async (email: string, url: string) => {
   }
 };
 
-export const checkUserExists = async (email: string) => {
+export const checkUserExists = async (email: string): Promise<{ success: boolean; exists: boolean; userData?: DocumentData; error?: string }> => {
   try {
     const userDoc = await getDoc(doc(db, 'users', email));
     return { success: true, exists: userDoc.exists(), userData: userDoc.data() };
   } catch (error: any) {
-    return { success: false, error: error.message, exists: false };
+    return { success: false, exists: false, error: error.message };
   }
 };
 
@@ -240,7 +264,7 @@ export const checkUserExists = async (email: string) => {
 // USER MANAGEMENT - SAFE UPDATE (PROTEKSI ADMIN)
 // ==========================================
 
-export const saveUserToFirestore = async (email: string, userData: any) => {
+export const saveUserToFirestore = async (email: string, userData: any): Promise<{ success: boolean; error?: string }> => {
   try {
     await setDoc(doc(db, 'users', email), {
       ...userData,
@@ -255,7 +279,12 @@ export const saveUserToFirestore = async (email: string, userData: any) => {
 };
 
 // FUNGSI PENTING: Save user dengan proteksi role
-export const saveUserToFirestoreSafe = async (email: string, userData: any) => {
+export const saveUserToFirestoreSafe = async (email: string, userData: any): Promise<{
+  success: boolean;
+  error?: string;
+  isNewUser?: boolean;
+  role?: string;
+}> => {
   try {
     const userRef = doc(db, 'users', email);
     const userDoc = await getDoc(userRef);
@@ -276,13 +305,14 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any) => {
       return { success: true, isNewUser: false, role: existingData.role };
     } else {
       // User baru, set role default 'user'
+      const newRole = userData.role || 'user';
       await setDoc(userRef, {
         ...userData,
-        role: userData.role || 'user', // Default 'user' jika tidak specified
+        role: newRole,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      return { success: true, isNewUser: true, role: userData.role || 'user' };
+      return { success: true, isNewUser: true, role: newRole };
     }
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -290,7 +320,7 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any) => {
 };
 
 // Update profile tanpa mengubah role
-export const updateUserProfile = async (email: string, profileData: any) => {
+export const updateUserProfile = async (email: string, profileData: any): Promise<{ success: boolean; error?: string }> => {
   try {
     const userRef = doc(db, 'users', email);
     
@@ -314,7 +344,7 @@ export const updateUserProfile = async (email: string, profileData: any) => {
 };
 
 // Set role admin (hanya untuk admin yang sudah login)
-export const setUserRole = async (email: string, role: 'user' | 'admin') => {
+export const setUserRole = async (email: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'users', email), {
       role,
@@ -330,7 +360,11 @@ export const setUserRole = async (email: string, role: 'user' | 'admin') => {
 // AUTHENTICATION FUNCTIONS
 // ==========================================
 
-export const registerUser = async (email: string, password: string, name: string, role: 'user' | 'admin' = 'user') => {
+export const registerUser = async (email: string, password: string, name: string, role: 'user' | 'admin' = 'user'): Promise<{
+  success: boolean;
+  error?: string;
+  user?: any;
+}> => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
@@ -349,7 +383,12 @@ export const registerUser = async (email: string, password: string, name: string
   }
 };
 
-export const loginUser = async (email: string, password: string) => {
+export const loginUser = async (email: string, password: string): Promise<{
+  success: boolean;
+  error?: string;
+  user?: any;
+  userData?: DocumentData;
+}> => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
@@ -367,7 +406,7 @@ export const loginUser = async (email: string, password: string) => {
   }
 };
 
-export const logoutUser = async () => {
+export const logoutUser = async (): Promise<{ success: boolean; error?: string }> => {
   try {
     await signOut(auth);
     localStorage.removeItem('needtea_user');
@@ -395,7 +434,11 @@ export interface MenuItem {
   updatedAt?: Timestamp;
 }
 
-export const getMenuItems = async () => {
+export const getMenuItems = async (): Promise<{
+  success: boolean;
+  error?: string;
+  items: MenuItem[];
+}> => {
   try {
     const q = query(collection(db, 'menuItems'), orderBy('createdAt', 'desc'));
     const snapshot = await getDocs(q);
@@ -417,7 +460,7 @@ export const addMenuItem = async (data: {
   category: string;
   image?: string;
   stock: number;
-}) => {
+}): Promise<{ success: boolean; error?: string; id?: string }> => {
   try {
     const validCategory: CategoryType = data.category === 'drink' ? 'drink' : 'food';
     
@@ -441,7 +484,7 @@ export const updateMenuItem = async (id: string, data: Partial<{
   category: string;
   image?: string;
   stock: number;
-}>) => {
+}>): Promise<{ success: boolean; error?: string }> => {
   try {
     const itemRef = doc(db, 'menuItems', id);
     const updateData: any = { ...data, updatedAt: serverTimestamp() };
@@ -457,7 +500,7 @@ export const updateMenuItem = async (id: string, data: Partial<{
   }
 };
 
-export const deleteMenuItem = async (id: string) => {
+export const deleteMenuItem = async (id: string): Promise<{ success: boolean; error?: string }> => {
   try {
     await deleteDoc(doc(db, 'menuItems', id));
     return { success: true };
@@ -508,7 +551,7 @@ export const createManualOrderDraft = async (orderData: {
   items: OrderItem[];
   totalAmount: number;
   notes?: string;
-}) => {
+}): Promise<{ success: boolean; error?: string; orderId?: string }> => {
   try {
     const docRef = await addDoc(collection(db, 'manualOrders'), {
       ...orderData,
@@ -525,7 +568,11 @@ export const createManualOrderDraft = async (orderData: {
 };
 
 // Ambil semua pesanan manual (draft)
-export const getManualOrderDrafts = async () => {
+export const getManualOrderDrafts = async (): Promise<{
+  success: boolean;
+  error?: string;
+  orders: any[];
+}> => {
   try {
     const q = query(
       collection(db, 'manualOrders'),
@@ -545,7 +592,11 @@ export const getManualOrderDrafts = async () => {
 };
 
 // Konfirmasi pesanan manual -> pindah ke antrian (orders)
-export const confirmManualOrder = async (manualOrderId: string) => {
+export const confirmManualOrder = async (manualOrderId: string): Promise<{
+  success: boolean;
+  error?: string;
+  orderId?: string;
+}> => {
   try {
     // Ambil data manual order
     const manualOrderRef = doc(db, 'manualOrders', manualOrderId);
@@ -590,7 +641,7 @@ export const confirmManualOrder = async (manualOrderId: string) => {
 };
 
 // Batalkan pesanan manual
-export const cancelManualOrder = async (manualOrderId: string) => {
+export const cancelManualOrder = async (manualOrderId: string): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'manualOrders', manualOrderId), {
       status: 'cancelled',
@@ -631,7 +682,7 @@ export const createOrder = async (orderData: {
   paymentMethod: PaymentMethod;
   shopeepayNumber?: string;
   status?: OrderStatus;
-}) => {
+}): Promise<{ success: boolean; error?: string; orderId?: string; id?: string }> => {
   try {
     const expiryTime = new Date();
     expiryTime.setMinutes(expiryTime.getMinutes() + 15);
@@ -649,7 +700,7 @@ export const createOrder = async (orderData: {
   }
 };
 
-export const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+export const updateOrderStatus = async (orderId: string, status: OrderStatus): Promise<{ success: boolean; error?: string }> => {
   try {
     const updateData: any = { status };
     
@@ -664,11 +715,11 @@ export const updateOrderStatus = async (orderId: string, status: OrderStatus) =>
   }
 };
 
-export const completeOrder = async (orderId: string) => {
+export const completeOrder = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
   return updateOrderStatus(orderId, 'completed');
 };
 
-export const cancelExpiredOrders = async () => {
+export const cancelExpiredOrders = async (): Promise<{ success: boolean; error?: string; cancelledCount?: number }> => {
   try {
     const now = Timestamp.now();
     const q = query(
@@ -705,7 +756,11 @@ export const subscribeToPendingOrders = (callback: (orders: Order[]) => void) =>
   });
 };
 
-export const getUserOrders = async (userEmail: string) => {
+export const getUserOrders = async (userEmail: string): Promise<{
+  success: boolean;
+  error?: string;
+  orders: Order[];
+}> => {
   try {
     const q = query(
       collection(db, 'orders'),
@@ -728,7 +783,11 @@ export const getUserOrders = async (userEmail: string) => {
 // STATISTICS FUNCTIONS
 // ==========================================
 
-export const getDailyStats = async (dateString: string) => {
+export const getDailyStats = async (dateString: string): Promise<{
+  success: boolean;
+  error?: string;
+  stats: any;
+}> => {
   try {
     const date = new Date(dateString);
     const startOfDay = new Date(date.setHours(0, 0, 0, 0));
@@ -780,7 +839,11 @@ export const getDailyStats = async (dateString: string) => {
 // USER MANAGEMENT (ADMIN ONLY)
 // ==========================================
 
-export const getAllUsers = async () => {
+export const getAllUsers = async (): Promise<{
+  success: boolean;
+  error?: string;
+  users?: any[];
+}> => {
   try {
     const snapshot = await getDocs(collection(db, 'users'));
     const users = snapshot.docs.map(doc => ({ 
@@ -793,7 +856,7 @@ export const getAllUsers = async () => {
   }
 };
 
-export const updateUserRole = async (email: string, role: 'user' | 'admin') => {
+export const updateUserRole = async (email: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'users', email), {
       role,

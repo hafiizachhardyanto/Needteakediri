@@ -7,9 +7,7 @@ import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
 import { 
   saveOTP, 
-  loginWithOTP, 
-  checkUserExists,
-  saveUserToFirestoreSafe
+  loginWithOTP
 } from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
 
@@ -95,9 +93,9 @@ function LoginContent() {
     
     const result = await loginWithOTP(email, otpString);
     
-    if (result.success) {
+    if (result.success && result.userData) {
       // Redirect berdasarkan role
-      if (result.userData?.role === 'admin') {
+      if (result.userData.role === 'admin') {
         router.push('/admin');
       } else {
         const redirect = searchParams.get('redirect') || '/';
@@ -119,6 +117,8 @@ function LoginContent() {
       alert(`Kode OTP baru Anda: ${generatedOTP}`);
       setCountdown(60);
       setOtp(['', '', '', '', '', '']);
+    } else {
+      setError(result.error || 'Gagal mengirim ulang OTP');
     }
     
     setLoading(false);
