@@ -1,4 +1,3 @@
-// Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -30,27 +29,21 @@ import {
   DocumentData
 } from "firebase/firestore";
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCGQgTom3RvQoURS6esMbh2lOm0FjXClF0",
   authDomain: "needtea-32554.firebaseapp.com",
-  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app ",
   projectId: "needtea-32554",
   storageBucket: "needtea-32554.firebasestorage.app",
   messagingSenderId: "306781281475",
   appId: "1:306781281475:web:3e21dd82fc1f050323d676"
 };
 
-// Initialize Firebase (hanya sekali)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
 export { app, auth, db };
-
-// ==========================================
-// KONFIGURASI URL DINAMIS
-// ==========================================
 
 const getBaseUrl = () => {
   if (process.env.NEXT_PUBLIC_APP_URL) {
@@ -71,70 +64,69 @@ const actionCodeSettings = {
   handleCodeInApp: true,
 };
 
-// ==========================================
-// OTP AUTHENTICATION (BARU)
-// ==========================================
-
-// Generate OTP 6 digit
 export const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Simpan OTP ke Firestore (dengan expiry 5 menit)
-export const saveOTP = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+export const saveOTPToUser = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    const otpRef = doc(db, 'otp_codes', email);
-    await setDoc(otpRef, {
-      email,
-      otp,
-      createdAt: serverTimestamp(),
-      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)), // 5 menit
-      used: false
-    });
+    const userRef = doc(db, 'users', email);
+    
+    await setDoc(userRef, {
+      otp: {
+        code: otp,
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
+        used: false
+      }
+    }, { merge: true });
+    
     return { success: true };
   } catch (error: any) {
+    console.error('saveOTPToUser Error:', error);
     return { success: false, error: error.message };
   }
 };
 
-// Verifikasi OTP
-export const verifyOTP = async (email: string, inputOTP: string): Promise<{ success: boolean; error?: string }> => {
+export const verifyOTPFromUser = async (email: string, inputOTP: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    const otpRef = doc(db, 'otp_codes', email);
-    const otpDoc = await getDoc(otpRef);
+    const userRef = doc(db, 'users', email);
+    const userDoc = await getDoc(userRef);
     
-    if (!otpDoc.exists()) {
+    if (!userDoc.exists()) {
+      return { success: false, error: 'User tidak ditemukan' };
+    }
+    
+    const userData = userDoc.data();
+    const otpData = userData.otp;
+    
+    if (!otpData) {
       return { success: false, error: 'OTP tidak ditemukan' };
     }
     
-    const otpData = otpDoc.data();
     const now = Timestamp.now();
     
-    // Cek expiry
     if (otpData.expiresAt.toDate() < now.toDate()) {
       return { success: false, error: 'OTP sudah kadaluarsa' };
     }
     
-    // Cek sudah digunakan
     if (otpData.used) {
       return { success: false, error: 'OTP sudah digunakan' };
     }
     
-    // Cek kecocokan
-    if (otpData.otp !== inputOTP) {
+    if (otpData.code !== inputOTP) {
       return { success: false, error: 'OTP tidak valid' };
     }
     
-    // Tandai sebagai used
-    await updateDoc(otpRef, { used: true });
+    await updateDoc(userRef, { 'otp.used': true });
     
     return { success: true };
   } catch (error: any) {
+    console.error('verifyOTPFromUser Error:', error);
     return { success: false, error: error.message };
   }
 };
 
-// Login dengan OTP (tidak overwrite data existing)
 export const loginWithOTP = async (email: string, otp: string): Promise<{
   success: boolean;
   error?: string;
@@ -142,8 +134,7 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
   isNewUser?: boolean;
 }> => {
   try {
-    // Verifikasi OTP
-    const verifyResult = await verifyOTP(email, otp);
+    const verifyResult = await verifyOTPFromUser(email, otp);
     if (!verifyResult.success) {
       return { 
         success: false, 
@@ -151,15 +142,13 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
       };
     }
     
-    // Cek user exists
     const userCheck = await checkUserExists(email);
     
-    // Jika user baru, buat dengan role 'user' (bukan admin)
     if (!userCheck.exists) {
       const saveResult = await saveUserToFirestoreSafe(email, {
         email,
         name: email.split('@')[0],
-        role: 'user', // Default selalu user
+        role: 'user',
         createdAt: serverTimestamp(),
         lastLogin: serverTimestamp(),
       });
@@ -171,18 +160,15 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
         };
       }
     } else {
-      // Jika user sudah ada, hanya update lastLogin, JANGAN ubah role
       await updateDoc(doc(db, 'users', email), {
         lastLogin: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
     }
     
-    // Ambil data user terbaru
     const userDoc = await getDoc(doc(db, 'users', email));
     const userData = userDoc.data();
     
-    // Simpan ke localStorage
     localStorage.setItem('needtea_user', JSON.stringify({
       email,
       ...userData,
@@ -196,16 +182,13 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
       isNewUser: !userCheck.exists 
     };
   } catch (error: any) {
+    console.error('loginWithOTP Error:', error);
     return { 
       success: false, 
       error: error.message || 'Terjadi kesalahan saat login'
     };
   }
 };
-
-// ==========================================
-// EMAIL LINK AUTHENTICATION (LEGACY - OPSIONAL)
-// ==========================================
 
 export const sendEmailLink = async (email: string): Promise<{ success: boolean; error?: string }> => {
   try {
@@ -233,7 +216,6 @@ export const completeSignInWithLink = async (email: string, url: string): Promis
     
     const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
     
-    // Gunakan fungsi safe yang tidak overwrite role
     await saveUserToFirestoreSafe(email, {
       email: result.user.email,
       name: result.user.displayName || email.split('@')[0],
@@ -260,10 +242,6 @@ export const checkUserExists = async (email: string): Promise<{ success: boolean
   }
 };
 
-// ==========================================
-// USER MANAGEMENT - SAFE UPDATE (PROTEKSI ADMIN)
-// ==========================================
-
 export const saveUserToFirestore = async (email: string, userData: any): Promise<{ success: boolean; error?: string }> => {
   try {
     await setDoc(doc(db, 'users', email), {
@@ -278,7 +256,6 @@ export const saveUserToFirestore = async (email: string, userData: any): Promise
   }
 };
 
-// FUNGSI PENTING: Save user dengan proteksi role
 export const saveUserToFirestoreSafe = async (email: string, userData: any): Promise<{
   success: boolean;
   error?: string;
@@ -289,14 +266,12 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
     const userRef = doc(db, 'users', email);
     const userDoc = await getDoc(userRef);
     
-    // Jika user sudah ada, PERTAHANKAN ROLE EXISTING
     if (userDoc.exists()) {
       const existingData = userDoc.data();
       
-      // Update hanya field yang diizinkan, jangan sentuh role!
       const safeUpdate = {
         ...userData,
-        role: existingData.role, // PERTAHANKAN ROLE!
+        role: existingData.role,
         createdAt: existingData.createdAt,
         updatedAt: serverTimestamp(),
       };
@@ -304,7 +279,6 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
       await updateDoc(userRef, safeUpdate);
       return { success: true, isNewUser: false, role: existingData.role };
     } else {
-      // User baru, set role default 'user'
       const newRole = userData.role || 'user';
       await setDoc(userRef, {
         ...userData,
@@ -319,12 +293,10 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
   }
 };
 
-// Update profile tanpa mengubah role
 export const updateUserProfile = async (email: string, profileData: any): Promise<{ success: boolean; error?: string }> => {
   try {
     const userRef = doc(db, 'users', email);
     
-    // Hanya update field profile, jangan sentuh role
     const allowedFields = ['name', 'phone', 'address', 'avatar', 'updatedAt'];
     const safeUpdate: any = {};
     
@@ -343,7 +315,6 @@ export const updateUserProfile = async (email: string, profileData: any): Promis
   }
 };
 
-// Set role admin (hanya untuk admin yang sudah login)
 export const setUserRole = async (email: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'users', email), {
@@ -355,10 +326,6 @@ export const setUserRole = async (email: string, role: 'user' | 'admin'): Promis
     return { success: false, error: error.message };
   }
 };
-
-// ==========================================
-// AUTHENTICATION FUNCTIONS
-// ==========================================
 
 export const registerUser = async (email: string, password: string, name: string, role: 'user' | 'admin' = 'user'): Promise<{
   success: boolean;
@@ -415,10 +382,6 @@ export const logoutUser = async (): Promise<{ success: boolean; error?: string }
     return { success: false, error: error.message };
   }
 };
-
-// ==========================================
-// MENU MANAGEMENT FUNCTIONS
-// ==========================================
 
 export type CategoryType = 'food' | 'drink';
 
@@ -509,10 +472,6 @@ export const deleteMenuItem = async (id: string): Promise<{ success: boolean; er
   }
 };
 
-// ==========================================
-// ORDER MANAGEMENT FUNCTIONS
-// ==========================================
-
 export interface OrderItem {
   menuId: string;
   name: string;
@@ -541,11 +500,6 @@ export interface Order {
   notes?: string;
 }
 
-// ==========================================
-// MANUAL ORDER FUNCTIONS (BARU)
-// ==========================================
-
-// Simpan pesanan manual sebagai draft (belum masuk antrian)
 export const createManualOrderDraft = async (orderData: {
   customerName: string;
   items: OrderItem[];
@@ -567,7 +521,6 @@ export const createManualOrderDraft = async (orderData: {
   }
 };
 
-// Ambil semua pesanan manual (draft)
 export const getManualOrderDrafts = async (): Promise<{
   success: boolean;
   error?: string;
@@ -591,14 +544,12 @@ export const getManualOrderDrafts = async (): Promise<{
   }
 };
 
-// Konfirmasi pesanan manual -> pindah ke antrian (orders)
 export const confirmManualOrder = async (manualOrderId: string): Promise<{
   success: boolean;
   error?: string;
   orderId?: string;
 }> => {
   try {
-    // Ambil data manual order
     const manualOrderRef = doc(db, 'manualOrders', manualOrderId);
     const manualOrderDoc = await getDoc(manualOrderRef);
     
@@ -608,11 +559,9 @@ export const confirmManualOrder = async (manualOrderId: string): Promise<{
     
     const manualOrderData = manualOrderDoc.data();
     
-    // Buat expiry time 30 menit
     const expiryTime = new Date();
     expiryTime.setMinutes(expiryTime.getMinutes() + 30);
     
-    // Buat order baru di collection orders (masuk antrian)
     const orderRef = await addDoc(collection(db, 'orders'), {
       userName: manualOrderData.customerName,
       userEmail: 'manual-order@admin.local',
@@ -627,7 +576,6 @@ export const confirmManualOrder = async (manualOrderId: string): Promise<{
       manualOrderId: manualOrderId,
     });
     
-    // Update status manual order menjadi confirmed
     await updateDoc(manualOrderRef, {
       status: 'confirmed',
       confirmedAt: serverTimestamp(),
@@ -640,7 +588,6 @@ export const confirmManualOrder = async (manualOrderId: string): Promise<{
   }
 };
 
-// Batalkan pesanan manual
 export const cancelManualOrder = async (manualOrderId: string): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'manualOrders', manualOrderId), {
@@ -653,7 +600,6 @@ export const cancelManualOrder = async (manualOrderId: string): Promise<{ succes
   }
 };
 
-// Subscribe ke pesanan manual realtime
 export const subscribeToManualOrders = (callback: (orders: any[]) => void) => {
   const q = query(
     collection(db, 'manualOrders'),
@@ -669,10 +615,6 @@ export const subscribeToManualOrders = (callback: (orders: any[]) => void) => {
     callback(orders);
   });
 };
-
-// ==========================================
-// REGULAR ORDER FUNCTIONS
-// ==========================================
 
 export const createOrder = async (orderData: {
   userEmail: string;
@@ -779,10 +721,6 @@ export const getUserOrders = async (userEmail: string): Promise<{
   }
 };
 
-// ==========================================
-// STATISTICS FUNCTIONS
-// ==========================================
-
 export const getDailyStats = async (dateString: string): Promise<{
   success: boolean;
   error?: string;
@@ -834,10 +772,6 @@ export const getDailyStats = async (dateString: string): Promise<{
     };
   }
 };
-
-// ==========================================
-// USER MANAGEMENT (ADMIN ONLY)
-// ==========================================
 
 export const getAllUsers = async (): Promise<{
   success: boolean;

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
 import { 
-  saveOTP, 
+  saveOTPToUser, 
   loginWithOTP
 } from '@/lib/firebase';
 import { sendOTPEmail } from '@/lib/emailjs';
@@ -24,7 +24,6 @@ function LoginContent() {
   const [successMessage, setSuccessMessage] = useState('');
   const [countdown, setCountdown] = useState(60);
 
-  // Redirect jika sudah login
   useEffect(() => {
     if (!authLoading && userData) {
       if (isAdmin) {
@@ -36,7 +35,6 @@ function LoginContent() {
     }
   }, [userData, isAdmin, authLoading, router, searchParams]);
 
-  // Countdown untuk resend OTP
   useEffect(() => {
     if (step === 'otp' && countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
@@ -56,14 +54,10 @@ function LoginContent() {
     setSuccessMessage('');
     
     try {
-      // Generate OTP 6 digit
       const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      // Simpan OTP ke Firestore
-      const result = await saveOTP(email, generatedOTP);
+      const result = await saveOTPToUser(email, generatedOTP);
       
       if (result.success) {
-        // Kirim email dengan OTP
         const emailResult = await sendOTPEmail({
           to_email: email,
           to_name: email.split('@')[0],
@@ -104,7 +98,6 @@ function LoginContent() {
     const result = await loginWithOTP(email, otpString);
     
     if (result.success && result.userData) {
-      // Redirect berdasarkan role
       if (result.userData.role === 'admin') {
         router.push('/admin');
       } else {
@@ -124,10 +117,9 @@ function LoginContent() {
     
     try {
       const generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
-      const result = await saveOTP(email, generatedOTP);
+      const result = await saveOTPToUser(email, generatedOTP);
       
       if (result.success) {
-        // Kirim ulang email
         const emailResult = await sendOTPEmail({
           to_email: email,
           to_name: email.split('@')[0],
@@ -154,13 +146,12 @@ function LoginContent() {
   };
 
   const handleOtpChange = (index: number, value: string) => {
-    if (value.length > 1) return; // Hanya 1 karakter per box
+    if (value.length > 1) return;
     
     const newOtp = [...otp];
     newOtp[index] = value;
     setOtp(newOtp);
     
-    // Auto focus ke box berikutnya
     if (value && index < 5) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       nextInput?.focus();
