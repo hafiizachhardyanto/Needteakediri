@@ -27,13 +27,14 @@ import {
   Timestamp,
   serverTimestamp,
   DocumentData,
-  enableIndexedDbPersistence
+  enableIndexedDbPersistence,
+  runTransaction
 } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCGQgTom3RvQoURS6esMbh2lOm0FjXClF0",
   authDomain: "needtea-32554.firebaseapp.com",
-  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app ",
+  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "needtea-32554",
   storageBucket: "needtea-32554.firebasestorage.app",
   messagingSenderId: "306781281475",
@@ -539,6 +540,76 @@ export const deleteMenuItem = async (id: string): Promise<{ success: boolean; er
   }
 };
 
+export const updateStock = async (menuId: string, quantityChange: number): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const menuRef = doc(db, 'menuItems', menuId);
+    
+    await runTransaction(db, async (transaction) => {
+      const menuDoc = await transaction.get(menuRef);
+      
+      if (!menuDoc.exists()) {
+        throw new Error('Menu item tidak ditemukan');
+      }
+      
+      const currentStock = menuDoc.data().stock || 0;
+      const newStock = Math.max(0, currentStock + quantityChange);
+      
+      transaction.update(menuRef, { 
+        stock: newStock,
+        updatedAt: serverTimestamp()
+      });
+    });
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('updateStock Error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const restoreStockFromOrder = async (items: { menuId: string; quantity: number }[]): Promise<{ success: boolean; error?: string }> => {
+  try {
+    for (const item of items) {
+      const result = await updateStock(item.menuId, item.quantity);
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+    }
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const deductStockForOrder = async (items: { menuId: string; quantity: number }[]): Promise<{ success: boolean; error?: string }> => {
+  try {
+    for (const item of items) {
+      const menuRef = doc(db, 'menuItems', item.menuId);
+      const menuDoc = await getDoc(menuRef);
+      
+      if (!menuDoc.exists()) {
+        return { success: false, error: `Menu ${item.menuId} tidak ditemukan` };
+      }
+      
+      const currentStock = menuDoc.data().stock || 0;
+      if (currentStock < item.quantity) {
+        return { success: false, error: `Stok ${menuDoc.data().name} tidak mencukupi (tersisa: ${currentStock})` };
+      }
+    }
+    
+    for (const item of items) {
+      const result = await updateStock(item.menuId, -item.quantity);
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
 export interface OrderItem {
   menuId: string;
   name: string;
@@ -591,6 +662,11 @@ export const createManualOrder = async (orderData: {
     
     if (!isAdmin) {
       return { success: false, error: 'Unauthorized: Only admin can create manual orders' };
+    }
+    
+    const stockCheck = await deductStockForOrder(orderData.items.map(item => ({ menuId: item.menuId, quantity: item.quantity })));
+    if (!stockCheck.success) {
+      return { success: false, error: stockCheck.error };
     }
     
     const paymentMethod = orderData.paymentMethod || 'manual';
@@ -680,6 +756,22 @@ export const deleteOrder = async (orderId: string): Promise<{ success: boolean; 
   }
 };
 
+export const cancelAndDeleteOrder = async (orderId: string, items?: { menuId: string; quantity: number }[]): Promise<{ success: boolean; error?: string }> => {
+  try {
+    if (items && items.length > 0) {
+      const restoreResult = await restoreStockFromOrder(items);
+      if (!restoreResult.success) {
+        return { success: false, error: restoreResult.error };
+      }
+    }
+    
+    await deleteDoc(doc(db, 'orders', orderId));
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
 export const createOrder = async (orderData: {
   userEmail: string;
   userName: string;
@@ -760,11 +852,18 @@ export const cancelExpiredAwaitingPaymentOrders = async (): Promise<{ success: b
     );
     
     const snapshot = await getDocs(q);
-    const batch = snapshot.docs.map(doc => 
-      updateDoc(doc.ref, { status: 'cancelled', cancelledAt: serverTimestamp() })
-    );
     
-    await Promise.all(batch);
+    for (const docSnapshot of snapshot.docs) {
+      const orderData = docSnapshot.data();
+      if (orderData.items) {
+        await restoreStockFromOrder(orderData.items.map((item: any) => ({
+          menuId: item.menuId,
+          quantity: item.quantity
+        })));
+      }
+      await updateDoc(docSnapshot.ref, { status: 'cancelled', cancelledAt: serverTimestamp() });
+    }
+    
     return { success: true, cancelledCount: snapshot.size };
   } catch (error: any) {
     return { success: false, error: error.message };
