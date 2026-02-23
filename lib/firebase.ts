@@ -8,8 +8,7 @@ import {
   User,
   sendSignInLinkToEmail,
   isSignInWithEmailLink,
-  signInWithEmailLink,
-  signInWithCustomToken
+  signInWithEmailLink
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -482,7 +481,7 @@ export interface OrderItem {
   image?: string;
 }
 
-export type OrderStatus = 'pending' | 'completed' | 'cancelled' | 'draft';
+export type OrderStatus = 'pending' | 'completed' | 'cancelled';
 export type PaymentMethod = 'cash' | 'shopeepay' | 'manual';
 
 export interface Order {
@@ -499,9 +498,10 @@ export interface Order {
   completedAt?: Timestamp;
   isManualOrder?: boolean;
   notes?: string;
+  createdBy?: string;
 }
 
-export const createManualOrderDraft = async (orderData: {
+export const createManualOrder = async (orderData: {
   customerName: string;
   items: OrderItem[];
   totalAmount: number;
@@ -522,11 +522,20 @@ export const createManualOrderDraft = async (orderData: {
       return { success: false, error: 'Unauthorized: Only admin can create manual orders' };
     }
     
-    const docRef = await addDoc(collection(db, 'manualOrders'), {
-      ...orderData,
-      status: 'draft',
-      isManualOrder: true,
+    const expiryTime = new Date();
+    expiryTime.setMinutes(expiryTime.getMinutes() + 30);
+    
+    const docRef = await addDoc(collection(db, 'orders'), {
+      userName: orderData.customerName,
+      userEmail: 'manual-order@admin.local',
+      items: orderData.items,
+      totalAmount: orderData.totalAmount,
+      status: 'pending',
+      paymentMethod: 'manual',
       createdAt: serverTimestamp(),
+      expiryTime: Timestamp.fromDate(expiryTime),
+      notes: orderData.notes,
+      isManualOrder: true,
       createdBy: createdBy,
     });
     
@@ -534,101 +543,6 @@ export const createManualOrderDraft = async (orderData: {
   } catch (error: any) {
     return { success: false, error: error.message };
   }
-};
-
-export const getManualOrderDrafts = async (): Promise<{
-  success: boolean;
-  error?: string;
-  orders: any[];
-}> => {
-  try {
-    const q = query(
-      collection(db, 'manualOrders'),
-      where('status', '==', 'draft'),
-      orderBy('createdAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    const orders = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
-    
-    return { success: true, orders };
-  } catch (error: any) {
-    return { success: false, error: error.message, orders: [] };
-  }
-};
-
-export const confirmManualOrder = async (manualOrderId: string): Promise<{
-  success: boolean;
-  error?: string;
-  orderId?: string;
-}> => {
-  try {
-    const manualOrderRef = doc(db, 'manualOrders', manualOrderId);
-    const manualOrderDoc = await getDoc(manualOrderRef);
-    
-    if (!manualOrderDoc.exists()) {
-      return { success: false, error: 'Pesanan manual tidak ditemukan' };
-    }
-    
-    const manualOrderData = manualOrderDoc.data();
-    
-    const expiryTime = new Date();
-    expiryTime.setMinutes(expiryTime.getMinutes() + 30);
-    
-    const orderRef = await addDoc(collection(db, 'orders'), {
-      userName: manualOrderData.customerName,
-      userEmail: 'manual-order@admin.local',
-      items: manualOrderData.items,
-      totalAmount: manualOrderData.totalAmount,
-      status: 'pending',
-      paymentMethod: 'manual',
-      createdAt: serverTimestamp(),
-      expiryTime: Timestamp.fromDate(expiryTime),
-      notes: manualOrderData.notes,
-      isManualOrder: true,
-      manualOrderId: manualOrderId,
-    });
-    
-    await updateDoc(manualOrderRef, {
-      status: 'confirmed',
-      confirmedAt: serverTimestamp(),
-      orderId: orderRef.id,
-    });
-    
-    return { success: true, orderId: orderRef.id };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
-};
-
-export const cancelManualOrder = async (manualOrderId: string): Promise<{ success: boolean; error?: string }> => {
-  try {
-    await updateDoc(doc(db, 'manualOrders', manualOrderId), {
-      status: 'cancelled',
-      cancelledAt: serverTimestamp(),
-    });
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
-};
-
-export const subscribeToManualOrders = (callback: (orders: any[]) => void) => {
-  const q = query(
-    collection(db, 'manualOrders'),
-    where('status', '==', 'draft'),
-    orderBy('createdAt', 'desc')
-  );
-  
-  return onSnapshot(q, (snapshot) => {
-    const orders = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
-    callback(orders);
-  });
 };
 
 export const createOrder = async (orderData: {

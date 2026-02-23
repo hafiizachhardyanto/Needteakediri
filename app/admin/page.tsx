@@ -12,11 +12,7 @@ import {
   getDailyStats,
   cancelExpiredOrders,
   subscribeToPendingOrders,
-  createManualOrderDraft,
-  getManualOrderDrafts,
-  confirmManualOrder,
-  cancelManualOrder,
-  subscribeToManualOrders,
+  createManualOrder,
   db,
   logoutUser
 } from '@/lib/firebase';
@@ -26,7 +22,7 @@ import { collection, getDocs, query, where, orderBy, Timestamp, addDoc } from 'f
 export default function AdminDashboard() {
   const router = useRouter();
   const { userData, isAdmin, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'daily' | 'menu' | 'history' | 'manual' | 'manualDrafts'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'daily' | 'menu' | 'history' | 'manual'>('dashboard');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [completedOrders, setCompletedOrders] = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
@@ -35,7 +31,6 @@ export default function AdminDashboard() {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Form tambah menu
   const [newMenu, setNewMenu] = useState({
     name: '',
     description: '',
@@ -45,21 +40,15 @@ export default function AdminDashboard() {
     stock: ''
   });
 
-  // State untuk edit menu
   const [editingMenu, setEditingMenu] = useState<any>(null);
   const [showEditMenu, setShowEditMenu] = useState(false);
 
-  // State untuk pesan manual
   const [manualOrder, setManualOrder] = useState({
     customerName: '',
     items: [] as { menuId: string; quantity: number; name: string; price: number }[],
     notes: ''
   });
 
-  // State untuk daftar pesanan manual (draft)
-  const [manualDrafts, setManualDrafts] = useState<any[]>([]);
-
-  // State untuk filter riwayat
   const [historyStartDate, setHistoryStartDate] = useState<string>('');
   const [historyEndDate, setHistoryEndDate] = useState<string>('');
 
@@ -73,25 +62,17 @@ export default function AdminDashboard() {
     if (isAdmin) {
       loadInitialData();
       
-      // Subscribe ke antrian
       const unsubscribePending = subscribeToPendingOrders((orders) => {
         setPendingOrders(orders);
         checkExpiredOrders(orders);
       });
       
-      // Subscribe ke pesanan manual draft
-      const unsubscribeManual = subscribeToManualOrders((orders) => {
-        setManualDrafts(orders);
-      });
-      
-      // Auto refresh setiap menit untuk cek expiry
       const interval = setInterval(() => {
         cancelExpiredOrders();
       }, 60000);
       
       return () => {
         unsubscribePending();
-        unsubscribeManual();
         clearInterval(interval);
       };
     }
@@ -102,8 +83,7 @@ export default function AdminDashboard() {
     await Promise.all([
       loadMenu(),
       loadCompletedOrders(),
-      loadDailyStats(),
-      loadManualDrafts()
+      loadDailyStats()
     ]);
     setLoading(false);
   };
@@ -137,20 +117,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadManualDrafts = async () => {
-    const result = await getManualOrderDrafts();
-    if (result.success) {
-      setManualDrafts(result.orders || []);
-    }
-  };
-
   const checkExpiredOrders = (orders: any[]) => {
     const now = new Date();
     orders.forEach(order => {
       if (order.expiryTime?.toDate) {
         const expiry = order.expiryTime.toDate();
         if (now > expiry && order.status === 'pending') {
-          // Auto cancel akan dihandle oleh interval
         }
       }
     });
@@ -232,7 +204,6 @@ export default function AdminDashboard() {
     await updateOrderStatus(orderId, 'cancelled');
   };
 
-  // Fungsi untuk pesan manual (draft)
   const handleAddToManualCart = (item: any) => {
     const existingItem = manualOrder.items.find(i => i.menuId === item.id);
     if (existingItem) {
@@ -279,8 +250,7 @@ export default function AdminDashboard() {
     return manualOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   };
 
-  // Simpan pesanan manual sebagai draft (belum masuk antrian)
-  const handleSaveManualDraft = async () => {
+  const handleSaveManualOrder = async () => {
     if (!manualOrder.customerName.trim()) {
       alert('Silakan masukkan nama pelanggan');
       return;
@@ -289,9 +259,14 @@ export default function AdminDashboard() {
       alert('Silakan pilih minimal satu item');
       return;
     }
+    
+    if (!isAdmin) {
+      alert('Anda tidak memiliki izin untuk membuat pesanan manual');
+      return;
+    }
 
     try {
-      const result = await createManualOrderDraft({
+      const result = await createManualOrder({
         customerName: manualOrder.customerName,
         items: manualOrder.items.map(item => ({
           ...item,
@@ -302,44 +277,18 @@ export default function AdminDashboard() {
       });
       
       if (result.success) {
-        alert('Pesanan manual berhasil disimpan! Silakan konfirmasi di daftar pesanan manual.');
+        alert('Pesanan manual berhasil dibuat dan masuk ke antrian!');
         setManualOrder({ customerName: '', items: [], notes: '' });
-        setActiveTab('manualDrafts'); // Pindah ke tab daftar pesanan manual
+        setActiveTab('queue');
       } else {
         alert('Gagal menyimpan pesanan manual: ' + result.error);
       }
     } catch (error) {
-      console.error('Error creating manual order draft:', error);
+      console.error('Error creating manual order:', error);
       alert('Gagal menyimpan pesanan manual');
     }
   };
 
-  // Konfirmasi pesanan manual -> masuk ke antrian
-  const handleConfirmManualOrder = async (draftId: string) => {
-    if (!confirm('Konfirmasi pesanan ini dan masukkan ke antrian?')) return;
-    
-    const result = await confirmManualOrder(draftId);
-    if (result.success) {
-      alert('Pesanan berhasil dikonfirmasi dan masuk ke antrian!');
-      // Tidak perlu load manual drafts karena sudah realtime
-    } else {
-      alert('Gagal mengkonfirmasi pesanan: ' + result.error);
-    }
-  };
-
-  // Batalkan pesanan manual
-  const handleCancelManualDraft = async (draftId: string) => {
-    if (!confirm('Batalkan pesanan manual ini?')) return;
-    
-    const result = await cancelManualOrder(draftId);
-    if (result.success) {
-      alert('Pesanan manual dibatalkan');
-    } else {
-      alert('Gagal membatalkan pesanan: ' + result.error);
-    }
-  };
-
-  // Fungsi download Excel
   const downloadExcel = () => {
     let filteredOrders = completedOrders;
     
@@ -422,7 +371,6 @@ export default function AdminDashboard() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      {/* Header dengan Glassmorphism */}
       <div className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-4">
@@ -452,13 +400,11 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Navigation */}
       <div className="bg-slate-900/50 border-b border-slate-800 overflow-x-auto">
         <div className="max-w-7xl mx-auto px-4 flex space-x-1">
           {[
             { key: 'dashboard', label: 'Dashboard', icon: '📊' },
             { key: 'manual', label: 'Buat Pesanan', icon: '✍️' },
-            { key: 'manualDrafts', label: `Pesanan Manual`, icon: '📋', count: manualDrafts.length },
             { key: 'queue', label: `Antrian`, icon: '⏳', count: pendingOrders.length },
             { key: 'daily', label: 'Pesanan Harian', icon: '📅' },
             { key: 'menu', label: 'Kelola Menu', icon: '🍽️' },
@@ -488,10 +434,8 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">
         
-        {/* DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
             <div className="flex items-center justify-between">
@@ -500,14 +444,6 @@ export default function AdminDashboard() {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700 hover:border-yellow-500/50 transition-all duration-300 group">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl group-hover:bg-yellow-500/20 transition-all"></div>
-                <div className="relative">
-                  <p className="text-slate-400 text-sm font-medium mb-2">Pesanan Manual Menunggu</p>
-                  <p className="text-5xl font-bold text-yellow-400">{manualDrafts.length}</p>
-                </div>
-              </div>
-
               <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700 hover:border-green-500/50 transition-all duration-300 group">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/10 rounded-full blur-3xl group-hover:bg-green-500/20 transition-all"></div>
                 <div className="relative">
@@ -546,13 +482,6 @@ export default function AdminDashboard() {
                   <span>Buat Pesanan Manual</span>
                 </button>
                 <button 
-                  onClick={() => setActiveTab('manualDrafts')}
-                  className="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 rounded-xl font-semibold transition-all duration-300 hover:scale-105 flex items-center space-x-2"
-                >
-                  <span>📋</span>
-                  <span>Lihat Pesanan Manual ({manualDrafts.length})</span>
-                </button>
-                <button 
                   onClick={() => setActiveTab('queue')}
                   className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold transition-all duration-300 hover:scale-105 flex items-center space-x-2"
                 >
@@ -564,14 +493,13 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* BUAT PESANAN MANUAL */}
         {activeTab === 'manual' && (
           <div className="max-w-4xl mx-auto">
             <div className="mb-8 text-center">
               <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-2">
                 Buat Pesanan Manual
               </h2>
-              <p className="text-slate-500">Buat pesanan untuk pelanggan. Pesanan akan disimpan sebagai draft dan perlu dikonfirmasi untuk masuk ke antrian.</p>
+              <p className="text-slate-500">Buat pesanan untuk pelanggan. Pesanan akan langsung masuk ke antrian.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8">
@@ -640,14 +568,11 @@ export default function AdminDashboard() {
                         <span className="text-2xl font-bold text-indigo-400">Rp {calculateManualTotal().toLocaleString()}</span>
                       </div>
                       <button
-                        onClick={handleSaveManualDraft}
+                        onClick={handleSaveManualOrder}
                         className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-[1.02] shadow-lg shadow-indigo-500/25"
                       >
-                        💾 Simpan Pesanan (Draft)
+                        🚀 Buat Pesanan & Masukkan ke Antrian
                       </button>
-                      <p className="text-center text-slate-500 text-sm mt-3">
-                        Pesanan akan disimpan sebagai draft. Konfirmasi di tab "Pesanan Manual" untuk masukkan ke antrian.
-                      </p>
                     </div>
                   </div>
                 )}
@@ -686,101 +611,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* DAFTAR PESANAN MANUAL (DRAFT) */}
-        {activeTab === 'manualDrafts' && (
-          <div>
-            <div className="flex justify-between items-center mb-8">
-              <div>
-                <h2 className="text-3xl font-bold text-slate-100">Pesanan Manual</h2>
-                <p className="text-slate-500 mt-1">{manualDrafts.length} pesanan menunggu konfirmasi</p>
-              </div>
-              <button 
-                onClick={() => setActiveTab('manual')}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-semibold transition-all duration-300 hover:scale-105 flex items-center space-x-2"
-              >
-                <span>+</span>
-                <span>Buat Pesanan Baru</span>
-              </button>
-            </div>
-
-            {manualDrafts.length === 0 ? (
-              <div className="bg-slate-800/30 rounded-3xl p-16 text-center border border-slate-700/50 border-dashed">
-                <div className="text-6xl mb-4 opacity-50">📋</div>
-                <h3 className="text-xl font-semibold text-slate-400">Tidak ada pesanan manual</h3>
-                <p className="text-slate-600 mt-2">Buat pesanan manual di tab "Buat Pesanan"</p>
-              </div>
-            ) : (
-              <div className="grid gap-6">
-                {manualDrafts.map((order, index) => (
-                  <div 
-                    key={order.id} 
-                    className="relative overflow-hidden bg-slate-800 rounded-2xl p-6 border-2 border-yellow-500/30 transition-all duration-300"
-                  >
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-500 to-orange-500"></div>
-                    
-                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <span className="text-2xl font-bold text-yellow-400">#{index + 1}</span>
-                          <span className="bg-yellow-500/20 text-yellow-400 text-xs px-3 py-1 rounded-full font-bold border border-yellow-500/30">
-                            MENUNGGU KONFIRMASI
-                          </span>
-                        </div>
-                        <p className="font-mono text-slate-500 text-sm mb-2">{order.id.slice(-8)}</p>
-                        <p className="text-white font-bold text-xl">{order.customerName}</p>
-                        <p className="text-slate-400 text-sm">Dibuat: {order.createdAt?.toDate?.().toLocaleString('id-ID') || '-'}</p>
-                      </div>
-
-                      <div className="text-right">
-                        <p className="text-3xl font-bold text-emerald-400">
-                          Rp {order.totalAmount?.toLocaleString()}
-                        </p>
-                        <div className="mt-2 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-slate-700 text-slate-300">
-                          ✍️ Pesanan Manual
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 bg-slate-900/50 rounded-xl p-4">
-                      <p className="text-slate-500 text-sm mb-3 font-medium">Detail Pesanan:</p>
-                      <div className="space-y-2">
-                        {order.items?.map((item: any, idx: number) => (
-                          <div key={idx} className="flex justify-between items-center text-sm py-2 border-b border-slate-800 last:border-0">
-                            <span className="text-slate-300">{item.quantity}x {item.name}</span>
-                            <span className="text-slate-400">Rp {item.subtotal?.toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {order.notes && (
-                        <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                          <p className="text-yellow-400 text-sm">📝 {order.notes}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-6 flex space-x-3">
-                      <button
-                        onClick={() => handleConfirmManualOrder(order.id)}
-                        className="flex-1 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20"
-                      >
-                        <span>✅</span>
-                        <span>Konfirmasi & Masukkan ke Antrian</span>
-                      </button>
-                      <button
-                        onClick={() => handleCancelManualDraft(order.id)}
-                        className="px-8 py-4 bg-slate-700 hover:bg-red-600/20 hover:text-red-400 rounded-xl transition-all duration-300 border border-slate-600 hover:border-red-500/30"
-                      >
-                        ❌ Batal
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ANTRIAN */}
         {activeTab === 'queue' && (
           <div>
             <div className="flex justify-between items-center mb-8">
@@ -890,7 +720,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* PESANAN HARIAN */}
         {activeTab === 'daily' && (
           <div>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -935,7 +764,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MENU */}
         {activeTab === 'menu' && (
           <div>
             <div className="flex justify-between items-center mb-8">
@@ -1013,7 +841,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* RIWAYAT */}
         {activeTab === 'history' && (
           <div>
             <div className="mb-8">
@@ -1105,7 +932,6 @@ export default function AdminDashboard() {
 
       </div>
 
-      {/* Modals */}
       {showAddMenu && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-800 rounded-2xl p-8 w-full max-w-md border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
