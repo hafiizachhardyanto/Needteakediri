@@ -8,7 +8,8 @@ import {
   User,
   sendSignInLinkToEmail,
   isSignInWithEmailLink,
-  signInWithEmailLink
+  signInWithEmailLink,
+  signInWithCustomToken
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -32,7 +33,7 @@ import {
 const firebaseConfig = {
   apiKey: "AIzaSyCGQgTom3RvQoURS6esMbh2lOm0FjXClF0",
   authDomain: "needtea-32554.firebaseapp.com",
-  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app ",
+  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "needtea-32554",
   storageBucket: "needtea-32554.firebasestorage.app",
   messagingSenderId: "306781281475",
@@ -507,12 +508,26 @@ export const createManualOrderDraft = async (orderData: {
   notes?: string;
 }): Promise<{ success: boolean; error?: string; orderId?: string }> => {
   try {
+    const storedUser = localStorage.getItem('needtea_user');
+    let createdBy = 'unknown';
+    let isAdmin = false;
+    
+    if (storedUser) {
+      const userData = JSON.parse(storedUser);
+      createdBy = userData.email || 'unknown';
+      isAdmin = userData.role === 'admin';
+    }
+    
+    if (!isAdmin) {
+      return { success: false, error: 'Unauthorized: Only admin can create manual orders' };
+    }
+    
     const docRef = await addDoc(collection(db, 'manualOrders'), {
       ...orderData,
       status: 'draft',
       isManualOrder: true,
       createdAt: serverTimestamp(),
-      createdBy: auth.currentUser?.email || 'unknown',
+      createdBy: createdBy,
     });
     
     return { success: true, orderId: docRef.id };
