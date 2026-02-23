@@ -671,6 +671,15 @@ export const moveToQueue = async (orderId: string): Promise<{ success: boolean; 
   }
 };
 
+export const deleteOrder = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await deleteDoc(doc(db, 'orders', orderId));
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
 export const createOrder = async (orderData: {
   userEmail: string;
   userName: string;

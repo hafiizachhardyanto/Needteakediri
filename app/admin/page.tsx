@@ -20,6 +20,7 @@ import {
   updateOrderPaymentMethod,
   confirmPayment,
   moveToQueue,
+  deleteOrder,
   db,
   logoutUser
 } from '@/lib/firebase';
@@ -228,6 +229,17 @@ export default function AdminDashboard() {
       alert('Pembayaran dikonfirmasi! Pesanan dipindahkan ke antrian.');
     } else {
       alert('Gagal: ' + result.error);
+    }
+  };
+
+  const handleDeleteHistoryOrder = async (orderId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus riwayat pesanan ini? Tindakan ini tidak dapat dibatalkan.')) return;
+    
+    const result = await deleteOrder(orderId);
+    if (result.success) {
+      alert('Riwayat pesanan berhasil dihapus!');
+    } else {
+      alert('Gagal menghapus riwayat: ' + result.error);
     }
   };
 
@@ -1094,7 +1106,7 @@ export default function AdminDashboard() {
           <div>
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-slate-100 mb-2">Riwayat Pesanan</h2>
-              <p className="text-slate-500">Kelola dan unduh riwayat transaksi. Klik pesanan untuk edit detail pembayaran.</p>
+              <p className="text-slate-500">Kelola dan unduh riwayat transaksi. Klik pesanan untuk edit detail pembayaran atau hapus riwayat.</p>
             </div>
 
             <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700 mb-8">
@@ -1146,8 +1158,7 @@ export default function AdminDashboard() {
                     {completedOrders.slice(0, 50).map((order) => (
                       <tr 
                         key={order.id} 
-                        className="hover:bg-slate-800/50 transition-colors cursor-pointer"
-                        onClick={() => openEditOrderModal(order)}
+                        className="hover:bg-slate-800/50 transition-colors"
                       >
                         <td className="px-6 py-4 text-slate-400 text-sm">
                           {order.completedAt?.toDate?.().toLocaleString('id-ID') || '-'}
@@ -1180,15 +1191,20 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditOrderModal(order);
-                            }}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
-                          >
-                            ✏️ Edit
-                          </button>
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => openEditOrderModal(order)}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteHistoryOrder(order.id)}
+                              className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm font-medium transition-colors border border-red-500/30"
+                            >
+                              🗑️ Hapus
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
