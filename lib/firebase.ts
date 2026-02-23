@@ -918,6 +918,28 @@ export const subscribeToCompletedOrders = (callback: (orders: Order[]) => void) 
   });
 };
 
+export const subscribeToTodayCompletedOrders = (callback: (orders: Order[]) => void) => {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  
+  const q = query(
+    collection(db, 'orders'),
+    where('status', '==', 'completed'),
+    where('completedAt', '>=', Timestamp.fromDate(startOfDay)),
+    where('completedAt', '<=', Timestamp.fromDate(endOfDay)),
+    orderBy('completedAt', 'desc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    callback(orders);
+  });
+};
+
 export const getUserOrders = async (userEmail: string): Promise<{
   success: boolean;
   error?: string;
@@ -988,6 +1010,135 @@ export const getDailyStats = async (dateString: string): Promise<{
         totalItems: 0,
         averageOrderValue: 0,
         date: dateString
+      }
+    };
+  }
+};
+
+export const getOrdersByDateRange = async (startDate: string, endDate: string): Promise<{
+  success: boolean;
+  error?: string;
+  orders: Order[];
+}> => {
+  try {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'completed'),
+      where('completedAt', '>=', Timestamp.fromDate(start)),
+      where('completedAt', '<=', Timestamp.fromDate(end)),
+      orderBy('completedAt', 'desc')
+    );
+    
+    const snapshot = await getDocs(q);
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    
+    return { success: true, orders };
+  } catch (error: any) {
+    return { success: false, error: error.message, orders: [] };
+  }
+};
+
+export const getMonthlyStats = async (year: number, month: number): Promise<{
+  success: boolean;
+  error?: string;
+  stats: any;
+}> => {
+  try {
+    const startOfMonth = new Date(year, month - 1, 1);
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+    
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'completed'),
+      where('completedAt', '>=', Timestamp.fromDate(startOfMonth)),
+      where('completedAt', '<=', Timestamp.fromDate(endOfMonth))
+    );
+    
+    const snapshot = await getDocs(q);
+    const orders = snapshot.docs.map(doc => doc.data() as Order);
+    
+    const totalOrders = orders.length;
+    const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const totalItems = orders.reduce((sum, order) => 
+      sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0
+    );
+    
+    return {
+      success: true,
+      stats: {
+        totalOrders,
+        totalRevenue,
+        totalItems,
+        year,
+        month
+      }
+    };
+  } catch (error: any) {
+    return { 
+      success: false, 
+      error: error.message,
+      stats: {
+        totalOrders: 0,
+        totalRevenue: 0,
+        totalItems: 0,
+        year,
+        month
+      }
+    };
+  }
+};
+
+export const getYearlyStats = async (year: number): Promise<{
+  success: boolean;
+  error?: string;
+  stats: any;
+}> => {
+  try {
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year, 11, 31, 23, 59, 59, 999);
+    
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'completed'),
+      where('completedAt', '>=', Timestamp.fromDate(startOfYear)),
+      where('completedAt', '<=', Timestamp.fromDate(endOfYear))
+    );
+    
+    const snapshot = await getDocs(q);
+    const orders = snapshot.docs.map(doc => doc.data() as Order);
+    
+    const totalOrders = orders.length;
+    const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const totalItems = orders.reduce((sum, order) => 
+      sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0
+    );
+    
+    return {
+      success: true,
+      stats: {
+        totalOrders,
+        totalRevenue,
+        totalItems,
+        year
+      }
+    };
+  } catch (error: any) {
+    return { 
+      success: false, 
+      error: error.message,
+      stats: {
+        totalOrders: 0,
+        totalRevenue: 0,
+        totalItems: 0,
+        year
       }
     };
   }

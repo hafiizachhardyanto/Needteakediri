@@ -15,12 +15,16 @@ import {
   subscribeToPendingOrders,
   subscribeToCompletedOrders,
   subscribeToAwaitingPaymentOrders,
+  subscribeToTodayCompletedOrders,
   createManualOrder,
   updateOrderPaymentProof,
   updateOrderPaymentMethod,
   confirmPayment,
   moveToQueue,
   deleteOrder,
+  getOrdersByDateRange,
+  getMonthlyStats,
+  getYearlyStats,
   db,
   logoutUser
 } from '@/lib/firebase';
@@ -34,6 +38,8 @@ export default function AdminDashboard() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [awaitingPaymentOrders, setAwaitingPaymentOrders] = useState<any[]>([]);
   const [completedOrders, setCompletedOrders] = useState<any[]>([]);
+  const [todayCompletedOrders, setTodayCompletedOrders] = useState<any[]>([]);
+  const [todayStats, setTodayStats] = useState({ totalRevenue: 0, totalOrders: 0, totalItems: 0 });
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [dailyStats, setDailyStats] = useState<any>(null);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -61,6 +67,9 @@ export default function AdminDashboard() {
 
   const [historyStartDate, setHistoryStartDate] = useState<string>('');
   const [historyEndDate, setHistoryEndDate] = useState<string>('');
+  const [historyOrders, setHistoryOrders] = useState<any[]>([]);
+  const [showHistoryTable, setShowHistoryTable] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [showEditOrder, setShowEditOrder] = useState(false);
@@ -89,6 +98,11 @@ export default function AdminDashboard() {
       const unsubscribeCompleted = subscribeToCompletedOrders((orders) => {
         setCompletedOrders(orders);
       });
+
+      const unsubscribeToday = subscribeToTodayCompletedOrders((orders) => {
+        setTodayCompletedOrders(orders);
+        calculateTodayStats(orders);
+      });
       
       const interval = setInterval(() => {
         cancelExpiredAwaitingPaymentOrders();
@@ -99,6 +113,7 @@ export default function AdminDashboard() {
         unsubscribePending();
         unsubscribeAwaiting();
         unsubscribeCompleted();
+        unsubscribeToday();
         clearInterval(interval);
       };
     }
@@ -122,6 +137,26 @@ export default function AdminDashboard() {
 
     return () => clearInterval(timerInterval);
   }, [awaitingPaymentOrders]);
+
+  useEffect(() => {
+    const midnightCheck = setInterval(() => {
+      const now = new Date();
+      if (now.getHours() === 0 && now.getMinutes() === 0) {
+        setTodayStats({ totalRevenue: 0, totalOrders: 0, totalItems: 0 });
+      }
+    }, 60000);
+
+    return () => clearInterval(midnightCheck);
+  }, []);
+
+  const calculateTodayStats = (orders: any[]) => {
+    const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
+    const totalOrders = orders.length;
+    const totalItems = orders.reduce((sum, order) => 
+      sum + order.items.reduce((itemSum: number, item: any) => itemSum + item.quantity, 0), 0
+    );
+    setTodayStats({ totalRevenue, totalOrders, totalItems });
+  };
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -238,6 +273,9 @@ export default function AdminDashboard() {
     const result = await deleteOrder(orderId);
     if (result.success) {
       alert('Riwayat pesanan berhasil dihapus!');
+      if (showHistoryTable) {
+        handleViewHistory();
+      }
     } else {
       alert('Gagal menghapus riwayat: ' + result.error);
     }
@@ -379,6 +417,9 @@ export default function AdminDashboard() {
       alert('Metode pembayaran berhasil diupdate!');
       setShowEditOrder(false);
       setEditingOrder(null);
+      if (showHistoryTable) {
+        handleViewHistory();
+      }
     } else {
       alert('Gagal mengupdate metode pembayaran: ' + result.error);
     }
@@ -412,23 +453,58 @@ export default function AdminDashboard() {
     reader.readAsDataURL(file);
   };
 
-  const downloadExcel = () => {
-    let filteredOrders = completedOrders;
-    
-    if (historyStartDate && historyEndDate) {
-      const start = new Date(historyStartDate);
-      const end = new Date(historyEndDate);
-      end.setHours(23, 59, 59, 999);
-      
-      filteredOrders = completedOrders.filter(order => {
-        const completedDate = order.completedAt?.toDate?.();
-        if (!completedDate) return false;
-        return completedDate >= start && completedDate <= end;
-      });
+  const handleViewHistory = async () => {
+    if (!historyStartDate || !historyEndDate) {
+      alert('Silakan pilih rentang tanggal terlebih dahulu');
+      return;
+    }
+
+    setHistoryLoading(true);
+    const result = await getOrdersByDateRange(historyStartDate, historyEndDate);
+    if (result.success) {
+      setHistoryOrders(result.orders);
+      setShowHistoryTable(true);
+    } else {
+      alert('Gagal memuat data: ' + result.error);
+    }
+    setHistoryLoading(false);
+  };
+
+  const downloadExcel = (type: 'daily' | 'monthly' | 'yearly') => {
+    let filteredOrders: any[] = [];
+    let filename = '';
+
+    const now = new Date();
+
+    switch (type) {
+      case 'daily':
+        const today = now.toISOString().split('T')[0];
+        filteredOrders = todayCompletedOrders;
+        filename = `penjualan-harian-${today}.csv`;
+        break;
+      case 'monthly':
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+        filteredOrders = completedOrders.filter(order => {
+          const completedDate = order.completedAt?.toDate?.();
+          if (!completedDate) return false;
+          return completedDate.getMonth() + 1 === currentMonth && completedDate.getFullYear() === currentYear;
+        });
+        filename = `penjualan-bulanan-${currentYear}-${currentMonth.toString().padStart(2, '0')}.csv`;
+        break;
+      case 'yearly':
+        const year = now.getFullYear();
+        filteredOrders = completedOrders.filter(order => {
+          const completedDate = order.completedAt?.toDate?.();
+          if (!completedDate) return false;
+          return completedDate.getFullYear() === year;
+        });
+        filename = `penjualan-tahunan-${year}.csv`;
+        break;
     }
 
     if (filteredOrders.length === 0) {
-      alert('Tidak ada data untuk diunduh pada rentang tanggal tersebut');
+      alert('Tidak ada data untuk diunduh');
       return;
     }
 
@@ -455,7 +531,7 @@ export default function AdminDashboard() {
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `riwayat-pesanan-${historyStartDate || 'all'}-to-${historyEndDate || 'all'}.csv`);
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -603,7 +679,27 @@ export default function AdminDashboard() {
                 <div className="relative">
                   <p className="text-slate-400 text-xs sm:text-sm font-medium mb-1 sm:mb-2">Pendapatan Hari Ini</p>
                   <p className="text-xl sm:text-3xl font-bold text-emerald-400">
-                    Rp {dailyStats?.totalRevenue?.toLocaleString() || 0}
+                    Rp {todayStats.totalRevenue.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-slate-700/50 backdrop-blur-sm">
+              <h3 className="text-base sm:text-lg font-bold mb-4 sm:mb-6 text-slate-200">Total Penjualan Hari Ini</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+                <div className="bg-slate-800/50 rounded-xl p-4 sm:p-6 border border-slate-700">
+                  <p className="text-slate-400 text-xs sm:text-sm mb-2">Total Pesanan Selesai</p>
+                  <p className="text-2xl sm:text-4xl font-bold text-indigo-400">{todayStats.totalOrders}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4 sm:p-6 border border-slate-700">
+                  <p className="text-slate-400 text-xs sm:text-sm mb-2">Total Item Terjual</p>
+                  <p className="text-2xl sm:text-4xl font-bold text-purple-400">{todayStats.totalItems}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-xl p-4 sm:p-6 border border-slate-700">
+                  <p className="text-slate-400 text-xs sm:text-sm mb-2">Rata-rata Nilai Pesanan</p>
+                  <p className="text-2xl sm:text-4xl font-bold text-pink-400">
+                    Rp {todayStats.totalOrders > 0 ? Math.round(todayStats.totalRevenue / todayStats.totalOrders).toLocaleString() : 0}
                   </p>
                 </div>
               </div>
@@ -1150,7 +1246,7 @@ export default function AdminDashboard() {
           <div>
             <div className="mb-6 sm:mb-8">
               <h2 className="text-2xl sm:text-3xl font-bold text-slate-100 mb-2">Riwayat Pesanan</h2>
-              <p className="text-slate-500 text-sm sm:text-base">Kelola dan unduh riwayat transaksi. Klik pesanan untuk edit detail pembayaran atau hapus riwayat.</p>
+              <p className="text-slate-500 text-sm sm:text-base">Pilih rentang tanggal untuk melihat riwayat transaksi.</p>
             </div>
 
             <div className="bg-slate-800/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-slate-700 mb-6 sm:mb-8">
@@ -1161,7 +1257,10 @@ export default function AdminDashboard() {
                   <input
                     type="date"
                     value={historyStartDate}
-                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                    onChange={(e) => {
+                      setHistoryStartDate(e.target.value);
+                      setShowHistoryTable(false);
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
                   />
                 </div>
@@ -1170,88 +1269,118 @@ export default function AdminDashboard() {
                   <input
                     type="date"
                     value={historyEndDate}
-                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                    onChange={(e) => {
+                      setHistoryEndDate(e.target.value);
+                      setShowHistoryTable(false);
+                    }}
                     className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
                   />
                 </div>
                 <button
-                  onClick={downloadExcel}
-                  className="w-full md:w-auto px-6 sm:px-8 py-2 sm:py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 rounded-lg sm:rounded-xl font-bold transition-all duration-300 hover:scale-105 flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20 text-sm sm:text-base"
+                  onClick={handleViewHistory}
+                  disabled={historyLoading}
+                  className="w-full md:w-auto px-6 sm:px-8 py-2 sm:py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg sm:rounded-xl font-bold transition-all duration-300 hover:scale-105 flex items-center justify-center space-x-2 text-sm sm:text-base disabled:opacity-50"
                 >
-                  <span>📥</span>
-                  <span>Unduh Excel</span>
+                  <span>🔍</span>
+                  <span>{historyLoading ? 'Memuat...' : 'Lihat Riwayat'}</span>
                 </button>
+              </div>
+
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-slate-700">
+                <p className="text-xs sm:text-sm text-slate-400 mb-3">Export Data:</p>
+                <div className="flex flex-wrap gap-2 sm:gap-3">
+                  <button
+                    onClick={() => downloadExcel('daily')}
+                    className="px-3 sm:px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-lg transition-all text-xs sm:text-sm border border-emerald-500/30"
+                  >
+                    📥 Harian
+                  </button>
+                  <button
+                    onClick={() => downloadExcel('monthly')}
+                    className="px-3 sm:px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-all text-xs sm:text-sm border border-blue-500/30"
+                  >
+                    📥 Bulanan
+                  </button>
+                  <button
+                    onClick={() => downloadExcel('yearly')}
+                    className="px-3 sm:px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 rounded-lg transition-all text-xs sm:text-sm border border-purple-500/30"
+                  >
+                    📥 Tahunan
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl overflow-hidden border border-slate-700/50">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[800px]">
-                  <thead className="bg-slate-800">
-                    <tr>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Waktu Selesai</th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Pelanggan</th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Item</th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-right text-xs sm:text-sm font-semibold text-slate-400">Total</th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs sm:text-sm font-semibold text-slate-400">Metode</th>
-                      <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs sm:text-sm font-semibold text-slate-400">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {completedOrders.slice(0, 50).map((order) => (
-                      <tr 
-                        key={order.id} 
-                        className="hover:bg-slate-800/50 transition-colors"
-                      >
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-slate-400 text-xs sm:text-sm">
-                          {order.completedAt?.toDate?.().toLocaleString('id-ID') || '-'}
-                        </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <p className="font-medium text-slate-200 text-sm sm:text-base">{order.userName}</p>
-                          <p className="text-slate-500 text-xs sm:text-sm truncate max-w-[150px]">{order.userEmail}</p>
-                        </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-slate-400">
-                          {order.items?.length} item
-                          <div className="text-xs text-slate-600 mt-1 truncate max-w-[200px]">
-                            {order.items?.map((i: any) => `${i.quantity}x ${i.name}`).join(', ')}
-                          </div>
-                        </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-right font-bold text-emerald-400 text-sm sm:text-base">
-                          Rp {order.totalAmount?.toLocaleString()}
-                        </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
-                          <span className="inline-flex items-center px-2 sm:px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
-                            {getPaymentMethodLabel(order.paymentMethod)}
-                          </span>
-                        </td>
-                        <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
-                          <div className="flex items-center justify-center space-x-1 sm:space-x-2">
-                            <button
-                              onClick={() => openEditOrderModal(order)}
-                              className="px-2 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs sm:text-sm font-medium transition-colors"
-                            >
-                              ✏️ Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteHistoryOrder(order.id)}
-                              className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs sm:text-sm font-medium transition-colors border border-red-500/30"
-                            >
-                              🗑️ Hapus
-                            </button>
-                          </div>
-                        </td>
+            {showHistoryTable && (
+              <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl overflow-hidden border border-slate-700/50">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[800px]">
+                    <thead className="bg-slate-800">
+                      <tr>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Waktu Selesai</th>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Pelanggan</th>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-slate-400">Item</th>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-right text-xs sm:text-sm font-semibold text-slate-400">Total</th>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs sm:text-sm font-semibold text-slate-400">Metode</th>
+                        <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs sm:text-sm font-semibold text-slate-400">Aksi</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {completedOrders.length === 0 && (
-                <div className="p-8 sm:p-12 text-center text-slate-500">
-                  <div className="text-3xl sm:text-4xl mb-4">📭</div>
-                  <p className="text-sm sm:text-base">Belum ada riwayat pesanan</p>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {historyOrders.map((order) => (
+                        <tr 
+                          key={order.id} 
+                          className="hover:bg-slate-800/50 transition-colors"
+                        >
+                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-slate-400 text-xs sm:text-sm">
+                            {order.completedAt?.toDate?.().toLocaleString('id-ID') || '-'}
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 sm:py-4">
+                            <p className="font-medium text-slate-200 text-sm sm:text-base">{order.userName}</p>
+                            <p className="text-slate-500 text-xs sm:text-sm truncate max-w-[150px]">{order.userEmail}</p>
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-slate-400">
+                            {order.items?.length} item
+                            <div className="text-xs text-slate-600 mt-1 truncate max-w-[200px]">
+                              {order.items?.map((i: any) => `${i.quantity}x ${i.name}`).join(', ')}
+                            </div>
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-right font-bold text-emerald-400 text-sm sm:text-base">
+                            Rp {order.totalAmount?.toLocaleString()}
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
+                            <span className="inline-flex items-center px-2 sm:px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
+                              {getPaymentMethodLabel(order.paymentMethod)}
+                            </span>
+                          </td>
+                          <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
+                            <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+                              <button
+                                onClick={() => openEditOrderModal(order)}
+                                className="px-2 sm:px-4 py-1.5 sm:py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs sm:text-sm font-medium transition-colors"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteHistoryOrder(order.id)}
+                                className="px-2 sm:px-4 py-1.5 sm:py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs sm:text-sm font-medium transition-colors border border-red-500/30"
+                              >
+                                🗑️ Hapus
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-            </div>
+                {historyOrders.length === 0 && (
+                  <div className="p-8 sm:p-12 text-center text-slate-500">
+                    <div className="text-3xl sm:text-4xl mb-4">📭</div>
+                    <p className="text-sm sm:text-base">Tidak ada riwayat pesanan pada rentang tanggal tersebut</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
