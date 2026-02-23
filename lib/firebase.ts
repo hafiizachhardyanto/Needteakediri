@@ -482,7 +482,7 @@ export interface OrderItem {
 }
 
 export type OrderStatus = 'pending' | 'completed' | 'cancelled';
-export type PaymentMethod = 'cash' | 'shopeepay' | 'manual';
+export type PaymentMethod = 'cash' | 'shopeepay' | 'manual' | 'transfer' | 'e-money';
 
 export interface Order {
   id?: string;
@@ -499,6 +499,8 @@ export interface Order {
   isManualOrder?: boolean;
   notes?: string;
   createdBy?: string;
+  paymentProof?: string;
+  paymentStatus?: 'pending' | 'paid';
 }
 
 export const createManualOrder = async (orderData: {
@@ -532,6 +534,7 @@ export const createManualOrder = async (orderData: {
       totalAmount: orderData.totalAmount,
       status: 'pending',
       paymentMethod: 'manual',
+      paymentStatus: 'pending',
       createdAt: serverTimestamp(),
       expiryTime: Timestamp.fromDate(expiryTime),
       notes: orderData.notes,
@@ -540,6 +543,31 @@ export const createManualOrder = async (orderData: {
     });
     
     return { success: true, orderId: docRef.id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const updateOrderPaymentProof = async (orderId: string, paymentProofUrl: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await updateDoc(doc(db, 'orders', orderId), {
+      paymentProof: paymentProofUrl,
+      paymentStatus: 'paid',
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const updateOrderPaymentMethod = async (orderId: string, paymentMethod: PaymentMethod): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await updateDoc(doc(db, 'orders', orderId), {
+      paymentMethod: paymentMethod,
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -561,6 +589,7 @@ export const createOrder = async (orderData: {
     const docRef = await addDoc(collection(db, 'orders'), {
       ...orderData,
       status: orderData.status || 'pending',
+      paymentStatus: 'pending',
       createdAt: serverTimestamp(),
       expiryTime: Timestamp.fromDate(expiryTime)
     });
@@ -573,7 +602,10 @@ export const createOrder = async (orderData: {
 
 export const updateOrderStatus = async (orderId: string, status: OrderStatus): Promise<{ success: boolean; error?: string }> => {
   try {
-    const updateData: any = { status };
+    const updateData: any = { 
+      status,
+      updatedAt: serverTimestamp()
+    };
     
     if (status === 'completed') {
       updateData.completedAt = serverTimestamp();
@@ -616,6 +648,22 @@ export const subscribeToPendingOrders = (callback: (orders: Order[]) => void) =>
     collection(db, 'orders'),
     where('status', '==', 'pending'),
     orderBy('createdAt', 'asc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    callback(orders);
+  });
+};
+
+export const subscribeToCompletedOrders = (callback: (orders: Order[]) => void) => {
+  const q = query(
+    collection(db, 'orders'),
+    where('status', '==', 'completed'),
+    orderBy('completedAt', 'desc')
   );
   
   return onSnapshot(q, (snapshot) => {

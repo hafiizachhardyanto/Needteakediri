@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   getMenuItems, 
@@ -12,7 +12,10 @@ import {
   getDailyStats,
   cancelExpiredOrders,
   subscribeToPendingOrders,
+  subscribeToCompletedOrders,
   createManualOrder,
+  updateOrderPaymentProof,
+  updateOrderPaymentMethod,
   db,
   logoutUser
 } from '@/lib/firebase';
@@ -52,6 +55,10 @@ export default function AdminDashboard() {
   const [historyStartDate, setHistoryStartDate] = useState<string>('');
   const [historyEndDate, setHistoryEndDate] = useState<string>('');
 
+  const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [showEditOrder, setShowEditOrder] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!authLoading && !isAdmin) {
       router.push('/');
@@ -67,12 +74,17 @@ export default function AdminDashboard() {
         checkExpiredOrders(orders);
       });
       
+      const unsubscribeCompleted = subscribeToCompletedOrders((orders) => {
+        setCompletedOrders(orders);
+      });
+      
       const interval = setInterval(() => {
         cancelExpiredOrders();
       }, 60000);
       
       return () => {
         unsubscribePending();
+        unsubscribeCompleted();
         clearInterval(interval);
       };
     }
@@ -82,7 +94,6 @@ export default function AdminDashboard() {
     setLoading(true);
     await Promise.all([
       loadMenu(),
-      loadCompletedOrders(),
       loadDailyStats()
     ]);
     setLoading(false);
@@ -92,21 +103,6 @@ export default function AdminDashboard() {
     const result = await getMenuItems();
     if (result.success) {
       setMenuItems(result.items || []);
-    }
-  };
-
-  const loadCompletedOrders = async () => {
-    try {
-      const q = query(
-        collection(db, 'orders'),
-        where('status', '==', 'completed'),
-        orderBy('completedAt', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCompletedOrders(orders);
-    } catch (error) {
-      console.error('Error loading completed orders:', error);
     }
   };
 
@@ -192,7 +188,6 @@ export default function AdminDashboard() {
     const result = await completeOrder(orderId);
     if (result.success) {
       alert('Pesanan berhasil diselesaikan!');
-      loadCompletedOrders();
       loadDailyStats();
     } else {
       alert('Gagal: ' + result.error);
@@ -289,6 +284,56 @@ export default function AdminDashboard() {
     }
   };
 
+  const openEditOrderModal = (order: any) => {
+    setEditingOrder({
+      ...order,
+      paymentMethod: order.paymentMethod || 'cash'
+    });
+    setShowEditOrder(true);
+  };
+
+  const handleUpdateOrderPaymentMethod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder?.id) return;
+    
+    const result = await updateOrderPaymentMethod(editingOrder.id, editingOrder.paymentMethod);
+    if (result.success) {
+      alert('Metode pembayaran berhasil diupdate!');
+      setShowEditOrder(false);
+      setEditingOrder(null);
+    } else {
+      alert('Gagal mengupdate metode pembayaran: ' + result.error);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingOrder?.id) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result as string;
+      
+      const result = await updateOrderPaymentProof(editingOrder.id, base64String);
+      if (result.success) {
+        alert('Bukti pembayaran berhasil diupload!');
+        setEditingOrder({
+          ...editingOrder,
+          paymentProof: base64String,
+          paymentStatus: 'paid'
+        });
+      } else {
+        alert('Gagal mengupload bukti pembayaran: ' + result.error);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const downloadExcel = () => {
     let filteredOrders = completedOrders;
     
@@ -309,7 +354,7 @@ export default function AdminDashboard() {
       return;
     }
 
-    const headers = ['Waktu Selesai', 'Nama Pelanggan', 'Email', 'Item Pesanan', 'Total (Rp)', 'Metode Pembayaran', 'Catatan'];
+    const headers = ['Waktu Selesai', 'Nama Pelanggan', 'Email', 'Item Pesanan', 'Total (Rp)', 'Metode Pembayaran', 'Status Pembayaran', 'Catatan'];
     const rows = filteredOrders.map(order => {
       const items = order.items?.map((i: any) => `${i.quantity}x ${i.name}`).join('; ') || '';
       return [
@@ -319,6 +364,7 @@ export default function AdminDashboard() {
         items,
         order.totalAmount || 0,
         order.paymentMethod || '-',
+        order.paymentStatus || 'pending',
         order.notes || '-'
       ];
     });
@@ -673,7 +719,7 @@ export default function AdminDashboard() {
                           Rp {order.totalAmount?.toLocaleString()}
                         </p>
                         <div className="mt-2 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-slate-700 text-slate-300">
-                          {order.paymentMethod === 'manual' ? '✍️ Manual' : order.paymentMethod === 'cash' ? '💵 Tunai' : '🧡 ShopeePay'}
+                          {order.paymentMethod === 'manual' ? '✍️ Manual' : order.paymentMethod === 'cash' ? '💵 Tunai' : order.paymentMethod === 'transfer' ? '🏦 Transfer' : order.paymentMethod === 'e-money' ? '💳 E-Money' : '🧡 ShopeePay'}
                         </div>
                         <div className="mt-3 text-red-400 font-mono font-bold bg-red-500/10 px-4 py-2 rounded-lg inline-block">
                           ⏱️ {formatTimeRemaining(order.expiryTime)}
@@ -845,7 +891,7 @@ export default function AdminDashboard() {
           <div>
             <div className="mb-8">
               <h2 className="text-3xl font-bold text-slate-100 mb-2">Riwayat Pesanan</h2>
-              <p className="text-slate-500">Kelola dan unduh riwayat transaksi</p>
+              <p className="text-slate-500">Kelola dan unduh riwayat transaksi. Klik pesanan untuk edit detail pembayaran.</p>
             </div>
 
             <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700 mb-8">
@@ -888,12 +934,18 @@ export default function AdminDashboard() {
                       <th className="px-6 py-4 text-left text-sm font-semibold text-slate-400">Pelanggan</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-slate-400">Item</th>
                       <th className="px-6 py-4 text-right text-sm font-semibold text-slate-400">Total</th>
-                      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Status</th>
+                      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Metode</th>
+                      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Status Bayar</th>
+                      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-400">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {completedOrders.slice(0, 50).map((order) => (
-                      <tr key={order.id} className="hover:bg-slate-800/50 transition-colors">
+                      <tr 
+                        key={order.id} 
+                        className="hover:bg-slate-800/50 transition-colors cursor-pointer"
+                        onClick={() => openEditOrderModal(order)}
+                      >
                         <td className="px-6 py-4 text-slate-400 text-sm">
                           {order.completedAt?.toDate?.().toLocaleString('id-ID') || '-'}
                         </td>
@@ -911,9 +963,32 @@ export default function AdminDashboard() {
                           Rp {order.totalAmount?.toLocaleString()}
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <span className="inline-flex items-center px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-xs font-medium border border-emerald-500/20">
-                            ✅ Selesai
+                          <span className="inline-flex items-center px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
+                            {order.paymentMethod === 'cash' ? '💵 Tunai' : 
+                             order.paymentMethod === 'transfer' ? '🏦 Transfer' : 
+                             order.paymentMethod === 'e-money' ? '💳 E-Money' : 
+                             order.paymentMethod === 'shopeepay' ? '🧡 ShopeePay' : '✍️ Manual'}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                            order.paymentStatus === 'paid' 
+                              ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                              : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                          }`}>
+                            {order.paymentStatus === 'paid' ? '✅ Lunas' : '⏳ Pending'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditOrderModal(order);
+                            }}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            ✏️ Edit
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1112,6 +1187,107 @@ export default function AdminDashboard() {
                   className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl transition-all"
                 >
                   Batal
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showEditOrder && editingOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl p-8 w-full max-w-lg border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-2xl font-bold mb-6 text-slate-100">Edit Detail Pembayaran</h3>
+            
+            <div className="mb-6 p-4 bg-slate-900/50 rounded-xl">
+              <p className="text-slate-400 text-sm mb-1">Pesanan</p>
+              <p className="text-white font-bold">{editingOrder.userName}</p>
+              <p className="text-emerald-400 font-bold">Rp {editingOrder.totalAmount?.toLocaleString()}</p>
+            </div>
+
+            <form onSubmit={handleUpdateOrderPaymentMethod} className="space-y-5">
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Metode Pembayaran</label>
+                <select
+                  value={editingOrder.paymentMethod}
+                  onChange={(e) => setEditingOrder({...editingOrder, paymentMethod: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-indigo-500 outline-none"
+                >
+                  <option value="cash">💵 Tunai (Cash)</option>
+                  <option value="transfer">🏦 Transfer Bank</option>
+                  <option value="e-money">💳 E-Money (OVO, GoPay, dll)</option>
+                  <option value="shopeepay">🧡 ShopeePay</option>
+                  <option value="manual">✍️ Manual</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">Bukti Pembayaran</label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+                
+                {editingOrder.paymentProof ? (
+                  <div className="space-y-3">
+                    <div className="relative w-full h-48 bg-slate-900 rounded-xl overflow-hidden">
+                      <img 
+                        src={editingOrder.paymentProof} 
+                        alt="Bukti Pembayaran" 
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="flex space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-medium transition-all"
+                      >
+                        🔄 Ganti Foto
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const result = await updateOrderPaymentProof(editingOrder.id, '');
+                          if (result.success) {
+                            setEditingOrder({...editingOrder, paymentProof: '', paymentStatus: 'pending'});
+                          }
+                        }}
+                        className="flex-1 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-xl font-medium transition-all"
+                      >
+                        🗑️ Hapus
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full py-8 border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-xl text-slate-400 hover:text-indigo-400 transition-all flex flex-col items-center space-y-2"
+                  >
+                    <span className="text-3xl">📷</span>
+                    <span>Klik untuk upload bukti pembayaran</span>
+                    <span className="text-xs text-slate-600">Maksimal 5MB</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex space-x-3 pt-4">
+                <button type="submit" className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold transition-all">
+                  Simpan Perubahan
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setShowEditOrder(false);
+                    setEditingOrder(null);
+                  }} 
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl transition-all"
+                >
+                  Tutup
                 </button>
               </div>
             </form>
