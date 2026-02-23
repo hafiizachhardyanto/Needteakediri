@@ -26,7 +26,8 @@ import {
   onSnapshot,
   Timestamp,
   serverTimestamp,
-  DocumentData
+  DocumentData,
+  enableIndexedDbPersistence
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -42,6 +43,16 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+if (typeof window !== 'undefined') {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code == 'failed-precondition') {
+      console.log('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+    } else if (err.code == 'unimplemented') {
+      console.log('The current browser does not support all of the features required to enable persistence');
+    }
+  });
+}
 
 export { app, auth, db };
 
@@ -399,6 +410,18 @@ export interface MenuItem {
   updatedBy?: string;
 }
 
+const getCurrentUserEmail = (): string => {
+  if (typeof window === 'undefined') return 'unknown';
+  const storedUser = localStorage.getItem('needtea_user');
+  if (!storedUser) return 'unknown';
+  try {
+    const userData = JSON.parse(storedUser);
+    return userData?.email || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+};
+
 export const getMenuItems = async (): Promise<{
   success: boolean;
   error?: string;
@@ -414,6 +437,7 @@ export const getMenuItems = async (): Promise<{
     
     return { success: true, items };
   } catch (error: any) {
+    console.error('getMenuItems Error:', error);
     return { success: false, error: error.message, items: [] };
   }
 };
@@ -427,23 +451,36 @@ export const addMenuItem = async (data: {
   stock: number;
 }): Promise<{ success: boolean; error?: string; id?: string }> => {
   try {
-    const storedUser = localStorage.getItem('needtea_user');
-    const userData = storedUser ? JSON.parse(storedUser) : null;
-    const adminEmail = userData?.email || 'unknown';
+    const adminEmail = getCurrentUserEmail();
+    
+    if (adminEmail === 'unknown') {
+      return { success: false, error: 'Anda harus login terlebih dahulu' };
+    }
     
     const validCategory: CategoryType = data.category === 'drink' ? 'drink' : 'food';
     
-    const docRef = await addDoc(collection(db, 'menuItems'), {
-      ...data,
+    const docData = {
+      name: data.name,
+      description: data.description || '',
+      price: data.price,
       category: validCategory,
+      image: data.image || '',
+      stock: data.stock,
       createdBy: adminEmail,
       updatedBy: adminEmail,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    };
+    
+    console.log('Adding menu item:', docData);
+    
+    const docRef = await addDoc(collection(db, 'menuItems'), docData);
+    
+    console.log('Menu item added with ID:', docRef.id);
     
     return { success: true, id: docRef.id };
   } catch (error: any) {
+    console.error('addMenuItem Error:', error);
     return { success: false, error: error.message };
   }
 };
@@ -457,9 +494,11 @@ export const updateMenuItem = async (id: string, data: Partial<{
   stock: number;
 }>): Promise<{ success: boolean; error?: string }> => {
   try {
-    const storedUser = localStorage.getItem('needtea_user');
-    const userData = storedUser ? JSON.parse(storedUser) : null;
-    const adminEmail = userData?.email || 'unknown';
+    const adminEmail = getCurrentUserEmail();
+    
+    if (adminEmail === 'unknown') {
+      return { success: false, error: 'Anda harus login terlebih dahulu' };
+    }
     
     const itemRef = doc(db, 'menuItems', id);
     const updateData: any = { 
@@ -472,18 +511,30 @@ export const updateMenuItem = async (id: string, data: Partial<{
       updateData.category = data.category === 'drink' ? 'drink' : 'food';
     }
     
+    console.log('Updating menu item:', id, updateData);
+    
     await updateDoc(itemRef, updateData);
+    
+    console.log('Menu item updated successfully');
+    
     return { success: true };
   } catch (error: any) {
+    console.error('updateMenuItem Error:', error);
     return { success: false, error: error.message };
   }
 };
 
 export const deleteMenuItem = async (id: string): Promise<{ success: boolean; error?: string }> => {
   try {
+    console.log('Deleting menu item:', id);
+    
     await deleteDoc(doc(db, 'menuItems', id));
+    
+    console.log('Menu item deleted successfully');
+    
     return { success: true };
   } catch (error: any) {
+    console.error('deleteMenuItem Error:', error);
     return { success: false, error: error.message };
   }
 };
