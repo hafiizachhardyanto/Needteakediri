@@ -11,11 +11,15 @@ import {
   updateOrderStatus,
   getDailyStats,
   cancelExpiredOrders,
+  cancelExpiredAwaitingPaymentOrders,
   subscribeToPendingOrders,
   subscribeToCompletedOrders,
+  subscribeToAwaitingPaymentOrders,
   createManualOrder,
   updateOrderPaymentProof,
   updateOrderPaymentMethod,
+  confirmPayment,
+  moveToQueue,
   db,
   logoutUser
 } from '@/lib/firebase';
@@ -25,8 +29,9 @@ import { collection, getDocs, query, where, orderBy, Timestamp, addDoc } from 'f
 export default function AdminDashboard() {
   const router = useRouter();
   const { userData, isAdmin, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'daily' | 'menu' | 'history' | 'manual'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'payment' | 'daily' | 'menu' | 'history' | 'manual'>('dashboard');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+  const [awaitingPaymentOrders, setAwaitingPaymentOrders] = useState<any[]>([]);
   const [completedOrders, setCompletedOrders] = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [dailyStats, setDailyStats] = useState<any>(null);
@@ -49,7 +54,8 @@ export default function AdminDashboard() {
   const [manualOrder, setManualOrder] = useState({
     customerName: '',
     items: [] as { menuId: string; quantity: number; name: string; price: number }[],
-    notes: ''
+    notes: '',
+    paymentMethod: 'cash' as 'cash' | 'e-money' | 'transfer' | 'shopeepay'
   });
 
   const [historyStartDate, setHistoryStartDate] = useState<string>('');
@@ -58,6 +64,8 @@ export default function AdminDashboard() {
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [showEditOrder, setShowEditOrder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [paymentTimers, setPaymentTimers] = useState<{[key: string]: number}>({});
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -71,7 +79,10 @@ export default function AdminDashboard() {
       
       const unsubscribePending = subscribeToPendingOrders((orders) => {
         setPendingOrders(orders);
-        checkExpiredOrders(orders);
+      });
+      
+      const unsubscribeAwaiting = subscribeToAwaitingPaymentOrders((orders) => {
+        setAwaitingPaymentOrders(orders);
       });
       
       const unsubscribeCompleted = subscribeToCompletedOrders((orders) => {
@@ -79,16 +90,37 @@ export default function AdminDashboard() {
       });
       
       const interval = setInterval(() => {
+        cancelExpiredAwaitingPaymentOrders();
         cancelExpiredOrders();
       }, 60000);
       
       return () => {
         unsubscribePending();
+        unsubscribeAwaiting();
         unsubscribeCompleted();
         clearInterval(interval);
       };
     }
   }, [isAdmin]);
+
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      const newTimers: {[key: string]: number} = {};
+      
+      awaitingPaymentOrders.forEach(order => {
+        if (order.expiryTime) {
+          const expiry = order.expiryTime.toDate().getTime();
+          const now = Date.now();
+          const remaining = Math.max(0, Math.floor((expiry - now) / 1000));
+          newTimers[order.id] = remaining;
+        }
+      });
+      
+      setPaymentTimers(newTimers);
+    }, 1000);
+
+    return () => clearInterval(timerInterval);
+  }, [awaitingPaymentOrders]);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -111,17 +143,6 @@ export default function AdminDashboard() {
     if (result.success) {
       setDailyStats(result.stats);
     }
-  };
-
-  const checkExpiredOrders = (orders: any[]) => {
-    const now = new Date();
-    orders.forEach(order => {
-      if (order.expiryTime?.toDate) {
-        const expiry = order.expiryTime.toDate();
-        if (now > expiry && order.status === 'pending') {
-        }
-      }
-    });
   };
 
   const handleAddMenu = async (e: React.FormEvent) => {
@@ -199,6 +220,17 @@ export default function AdminDashboard() {
     await updateOrderStatus(orderId, 'cancelled');
   };
 
+  const handleConfirmPaymentAndMoveToQueue = async (orderId: string) => {
+    if (!confirm('Konfirmasi pembayaran dan pindahkan ke antrian?')) return;
+    
+    const result = await moveToQueue(orderId);
+    if (result.success) {
+      alert('Pembayaran dikonfirmasi! Pesanan dipindahkan ke antrian.');
+    } else {
+      alert('Gagal: ' + result.error);
+    }
+  };
+
   const handleAddToManualCart = (item: any) => {
     const existingItem = manualOrder.items.find(i => i.menuId === item.id);
     if (existingItem) {
@@ -269,12 +301,18 @@ export default function AdminDashboard() {
         })),
         totalAmount: calculateManualTotal(),
         notes: manualOrder.notes,
+        paymentMethod: manualOrder.paymentMethod
       });
       
       if (result.success) {
-        alert('Pesanan manual berhasil dibuat dan masuk ke antrian!');
-        setManualOrder({ customerName: '', items: [], notes: '' });
-        setActiveTab('queue');
+        alert('Pesanan manual berhasil dibuat!');
+        setManualOrder({ customerName: '', items: [], notes: '', paymentMethod: 'cash' });
+        
+        if (['e-money', 'transfer', 'shopeepay'].includes(manualOrder.paymentMethod)) {
+          setActiveTab('payment');
+        } else {
+          setActiveTab('queue');
+        }
       } else {
         alert('Gagal menyimpan pesanan manual: ' + result.error);
       }
@@ -384,17 +422,22 @@ export default function AdminDashboard() {
     document.body.removeChild(link);
   };
 
-  const formatTimeRemaining = (expiryTime: any) => {
-    if (!expiryTime?.toDate) return '-';
-    const now = new Date();
-    const expiry = expiryTime.toDate();
-    const diff = expiry.getTime() - now.getTime();
-    
-    if (diff <= 0) return '⏰ EXPIRED';
-    
-    const minutes = Math.floor(diff / 60000);
-    const seconds = Math.floor((diff % 60000) / 1000);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const formatTimeRemaining = (seconds: number) => {
+    if (seconds <= 0) return '⏰ EXPIRED';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getPaymentMethodLabel = (method: string) => {
+    const labels: {[key: string]: string} = {
+      'cash': '💵 Tunai',
+      'e-money': '💳 E-Money',
+      'transfer': '🏦 Transfer',
+      'shopeepay': '🧡 ShopeePay',
+      'manual': '✍️ Manual'
+    };
+    return labels[method] || method;
   };
 
   const handleLogout = async () => {
@@ -452,6 +495,7 @@ export default function AdminDashboard() {
             { key: 'dashboard', label: 'Dashboard', icon: '📊' },
             { key: 'manual', label: 'Buat Pesanan', icon: '✍️' },
             { key: 'queue', label: `Antrian`, icon: '⏳', count: pendingOrders.length },
+            { key: 'payment', label: `Konfirmasi Bayar`, icon: '💳', count: awaitingPaymentOrders.length },
             { key: 'daily', label: 'Pesanan Harian', icon: '📅' },
             { key: 'menu', label: 'Kelola Menu', icon: '🍽️' },
             { key: 'history', label: 'Riwayat', icon: '📜' }
@@ -498,6 +542,14 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
+              <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700 hover:border-orange-500/50 transition-all duration-300 group">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 rounded-full blur-3xl group-hover:bg-orange-500/20 transition-all"></div>
+                <div className="relative">
+                  <p className="text-slate-400 text-sm font-medium mb-2">Menunggu Pembayaran</p>
+                  <p className="text-5xl font-bold text-orange-400">{awaitingPaymentOrders.length}</p>
+                </div>
+              </div>
+
               <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-slate-700 hover:border-blue-500/50 transition-all duration-300 group">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all"></div>
                 <div className="relative">
@@ -534,6 +586,17 @@ export default function AdminDashboard() {
                   <span>⏳</span>
                   <span>Kelola Antrian</span>
                 </button>
+                <button 
+                  onClick={() => setActiveTab('payment')}
+                  className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 flex items-center space-x-2 ${
+                    awaitingPaymentOrders.length > 0 
+                      ? 'bg-orange-600 hover:bg-orange-500 shadow-lg shadow-orange-500/25' 
+                      : 'bg-slate-700 hover:bg-slate-600'
+                  }`}
+                >
+                  <span>💳</span>
+                  <span>Konfirmasi Pembayaran {awaitingPaymentOrders.length > 0 && `(${awaitingPaymentOrders.length})`}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -545,13 +608,13 @@ export default function AdminDashboard() {
               <h2 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent mb-2">
                 Buat Pesanan Manual
               </h2>
-              <p className="text-slate-500">Buat pesanan untuk pelanggan. Pesanan akan langsung masuk ke antrian.</p>
+              <p className="text-slate-500">Buat pesanan untuk pelanggan. Pesanan non-tunai akan masuk ke konfirmasi pembayaran.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-8">
               <div className="space-y-6">
                 <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">Nama Pelanggan</label>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Nama Pelanggan *</label>
                   <input
                     type="text"
                     placeholder="Masukkan nama pelanggan..."
@@ -559,6 +622,25 @@ export default function AdminDashboard() {
                     onChange={(e) => setManualOrder(prev => ({ ...prev, customerName: e.target.value }))}
                     className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
                   />
+                </div>
+
+                <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Metode Pembayaran</label>
+                  <select
+                    value={manualOrder.paymentMethod}
+                    onChange={(e) => setManualOrder(prev => ({ ...prev, paymentMethod: e.target.value as any }))}
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  >
+                    <option value="cash">💵 Tunai (Langsung ke Antrian)</option>
+                    <option value="e-money">💳 E-Money (Perlu Konfirmasi)</option>
+                    <option value="transfer">🏦 Transfer Bank (Perlu Konfirmasi)</option>
+                    <option value="shopeepay">🧡 ShopeePay (Perlu Konfirmasi)</option>
+                  </select>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {['e-money', 'transfer', 'shopeepay'].includes(manualOrder.paymentMethod) 
+                      ? 'Pesanan akan masuk ke halaman Konfirmasi Pembayaran dengan timer 30 menit' 
+                      : 'Pesanan akan langsung masuk ke Antrian'}
+                  </p>
                 </div>
 
                 <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
@@ -617,7 +699,7 @@ export default function AdminDashboard() {
                         onClick={handleSaveManualOrder}
                         className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-[1.02] shadow-lg shadow-indigo-500/25"
                       >
-                        🚀 Buat Pesanan & Masukkan ke Antrian
+                        🚀 Buat Pesanan
                       </button>
                     </div>
                   </div>
@@ -662,15 +744,8 @@ export default function AdminDashboard() {
             <div className="flex justify-between items-center mb-8">
               <div>
                 <h2 className="text-3xl font-bold text-slate-100">Antrian Pesanan</h2>
-                <p className="text-slate-500 mt-1">{pendingOrders.length} pesanan menunggu</p>
+                <p className="text-slate-500 mt-1">{pendingOrders.length} pesanan menunggu diproses</p>
               </div>
-              <button 
-                onClick={() => cancelExpiredOrders()}
-                className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 transition-all duration-300 flex items-center space-x-2"
-              >
-                <span>🧹</span>
-                <span>Bersihkan Expired</span>
-              </button>
             </div>
 
             {pendingOrders.length === 0 ? (
@@ -719,10 +794,7 @@ export default function AdminDashboard() {
                           Rp {order.totalAmount?.toLocaleString()}
                         </p>
                         <div className="mt-2 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-slate-700 text-slate-300">
-                          {order.paymentMethod === 'manual' ? '✍️ Manual' : order.paymentMethod === 'cash' ? '💵 Tunai' : order.paymentMethod === 'transfer' ? '🏦 Transfer' : order.paymentMethod === 'e-money' ? '💳 E-Money' : '🧡 ShopeePay'}
-                        </div>
-                        <div className="mt-3 text-red-400 font-mono font-bold bg-red-500/10 px-4 py-2 rounded-lg inline-block">
-                          ⏱️ {formatTimeRemaining(order.expiryTime)}
+                          {getPaymentMethodLabel(order.paymentMethod)}
                         </div>
                       </div>
                     </div>
@@ -761,6 +833,137 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'payment' && (
+          <div>
+            <div className="flex justify-between items-center mb-8">
+              <div>
+                <h2 className="text-3xl font-bold text-slate-100">Konfirmasi Pembayaran</h2>
+                <p className="text-slate-500 mt-1">{awaitingPaymentOrders.length} pesanan menunggu pembayaran (30 menit)</p>
+              </div>
+              <button 
+                onClick={() => cancelExpiredAwaitingPaymentOrders()}
+                className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 transition-all duration-300 flex items-center space-x-2"
+              >
+                <span>🧹</span>
+                <span>Bersihkan Expired</span>
+              </button>
+            </div>
+
+            {awaitingPaymentOrders.length === 0 ? (
+              <div className="bg-slate-800/30 rounded-3xl p-16 text-center border border-slate-700/50 border-dashed">
+                <div className="text-6xl mb-4 opacity-50">💳</div>
+                <h3 className="text-xl font-semibold text-slate-400">Tidak ada pesanan menunggu</h3>
+                <p className="text-slate-600 mt-2">Semua pembayaran telah dikonfirmasi atau belum ada pesanan non-tunai</p>
+              </div>
+            ) : (
+              <div className="grid gap-6">
+                {awaitingPaymentOrders.map((order, index) => {
+                  const remainingSeconds = paymentTimers[order.id] || 0;
+                  const isExpired = remainingSeconds <= 0;
+                  
+                  return (
+                    <div 
+                      key={order.id} 
+                      className={`relative overflow-hidden bg-slate-800 rounded-2xl p-6 border-2 transition-all duration-300 ${
+                        isExpired 
+                          ? 'border-red-500/30 opacity-75' 
+                          : remainingSeconds < 300 
+                            ? 'border-red-500/50 shadow-lg shadow-red-500/10' 
+                            : 'border-orange-500/30 hover:border-orange-500/50'
+                      }`}
+                    >
+                      <div className={`absolute top-0 left-0 w-full h-1 ${
+                        isExpired 
+                          ? 'bg-red-500' 
+                          : remainingSeconds < 300 
+                            ? 'bg-gradient-to-r from-red-500 to-orange-500' 
+                            : 'bg-gradient-to-r from-orange-500 to-yellow-500'
+                      }`}></div>
+                      
+                      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-2">
+                            <span className="text-3xl font-bold text-orange-400">#{index + 1}</span>
+                            <span className="bg-orange-500/20 text-orange-400 text-xs px-3 py-1 rounded-full font-bold border border-orange-500/30">
+                              MENUNGGU PEMBAYARAN
+                            </span>
+                            {order.isManualOrder && (
+                              <span className="bg-indigo-500/20 text-indigo-400 text-xs px-3 py-1 rounded-full font-bold border border-indigo-500/30">
+                                MANUAL
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-mono text-slate-500 text-sm mb-2">{order.id.slice(-8)}</p>
+                          <p className="text-white font-bold text-xl">{order.userName}</p>
+                          <p className="text-slate-400 text-sm">{order.userEmail}</p>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-3xl font-bold text-emerald-400">
+                            Rp {order.totalAmount?.toLocaleString()}
+                          </p>
+                          <div className="mt-2 inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-slate-700 text-slate-300">
+                            {getPaymentMethodLabel(order.paymentMethod)}
+                          </div>
+                          <div className={`mt-3 font-mono font-bold px-4 py-2 rounded-lg inline-block ${
+                            isExpired 
+                              ? 'bg-red-500/20 text-red-400' 
+                              : remainingSeconds < 300 
+                                ? 'bg-red-500/20 text-red-400 animate-pulse' 
+                                : 'bg-orange-500/20 text-orange-400'
+                          }`}>
+                            ⏱️ {formatTimeRemaining(remainingSeconds)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 bg-slate-900/50 rounded-xl p-4">
+                        <p className="text-slate-500 text-sm mb-3 font-medium">Detail Pesanan:</p>
+                        <div className="space-y-2">
+                          {order.items?.map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between items-center text-sm py-2 border-b border-slate-800 last:border-0">
+                              <span className="text-slate-300">{item.quantity}x {item.name}</span>
+                              <span className="text-slate-400">Rp {item.subtotal?.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {order.notes && (
+                          <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <p className="text-yellow-400 text-sm">📝 {order.notes}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-6 flex space-x-3">
+                        {!isExpired ? (
+                          <button
+                            onClick={() => handleConfirmPaymentAndMoveToQueue(order.id)}
+                            className="flex-1 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-bold transition-all duration-300 hover:scale-[1.02] flex items-center justify-center space-x-2 shadow-lg shadow-indigo-500/20"
+                          >
+                            <span>✅</span>
+                            <span>Konfirmasi & Pindahkan ke Antrian</span>
+                          </button>
+                        ) : (
+                          <div className="flex-1 py-4 bg-red-500/20 text-red-400 rounded-xl font-bold flex items-center justify-center space-x-2 border border-red-500/30">
+                            <span>⏰</span>
+                            <span>Pesanan Kedaluwarsa</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => handleCancelOrder(order.id)}
+                          className="px-8 py-4 bg-slate-700 hover:bg-red-600/20 hover:text-red-400 rounded-xl transition-all duration-300 border border-slate-600 hover:border-red-500/30"
+                        >
+                          ❌ Batal
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -964,10 +1167,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <span className="inline-flex items-center px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
-                            {order.paymentMethod === 'cash' ? '💵 Tunai' : 
-                             order.paymentMethod === 'transfer' ? '🏦 Transfer' : 
-                             order.paymentMethod === 'e-money' ? '💳 E-Money' : 
-                             order.paymentMethod === 'shopeepay' ? '🧡 ShopeePay' : '✍️ Manual'}
+                            {getPaymentMethodLabel(order.paymentMethod)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-center">
@@ -1076,7 +1276,7 @@ export default function AdminDashboard() {
                 <label className="block text-sm text-slate-400 mb-2">URL Gambar (opsional)</label>
                 <input
                   type="url"
-                  placeholder="https://example.com/image.jpg"
+                  placeholder="https://example.com/image.jpg "
                   value={newMenu.image}
                   onChange={(e) => setNewMenu({...newMenu, image: e.target.value})}
                   className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white focus:border-indigo-500 outline-none"

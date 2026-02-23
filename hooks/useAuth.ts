@@ -22,18 +22,21 @@ export default function useAuth() {
           const data = userDoc.data();
           setUserData(data);
           
-          // Update lastLogin saja, jangan overwrite data lain
           await updateDoc(userRef, {
             lastLogin: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
         } else {
-          // User baru dari Firebase Auth tapi belum ada di Firestore
-          // Jangan buat dokumen baru otomatis, biarkan flow registrasi yang handle
-          setUserData(null);
+          const stored = localStorage.getItem('needtea_user');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const userDoc = await getDoc(doc(db, 'users', parsed.email));
+            if (userDoc.exists()) {
+              setUserData(userDoc.data());
+            }
+          }
         }
       } else {
-        // Cek localStorage sebagai fallback
         const stored = localStorage.getItem('needtea_user');
         if (stored) {
           const parsed = JSON.parse(stored);

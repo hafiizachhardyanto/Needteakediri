@@ -33,7 +33,7 @@ import {
 const firebaseConfig = {
   apiKey: "AIzaSyCGQgTom3RvQoURS6esMbh2lOm0FjXClF0",
   authDomain: "needtea-32554.firebaseapp.com",
-  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app ",
   projectId: "needtea-32554",
   storageBucket: "needtea-32554.firebasestorage.app",
   messagingSenderId: "306781281475",
@@ -548,7 +548,7 @@ export interface OrderItem {
   image?: string;
 }
 
-export type OrderStatus = 'pending' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending' | 'completed' | 'cancelled' | 'awaiting_payment' | 'payment_confirmed';
 export type PaymentMethod = 'cash' | 'shopeepay' | 'manual' | 'transfer' | 'e-money';
 
 export interface Order {
@@ -568,6 +568,7 @@ export interface Order {
   createdBy?: string;
   paymentProof?: string;
   paymentStatus?: 'pending' | 'paid';
+  awaitingPaymentAt?: Timestamp;
 }
 
 export const createManualOrder = async (orderData: {
@@ -575,6 +576,7 @@ export const createManualOrder = async (orderData: {
   items: OrderItem[];
   totalAmount: number;
   notes?: string;
+  paymentMethod?: PaymentMethod;
 }): Promise<{ success: boolean; error?: string; orderId?: string }> => {
   try {
     const storedUser = localStorage.getItem('needtea_user');
@@ -591,19 +593,20 @@ export const createManualOrder = async (orderData: {
       return { success: false, error: 'Unauthorized: Only admin can create manual orders' };
     }
     
-    const expiryTime = new Date();
-    expiryTime.setMinutes(expiryTime.getMinutes() + 30);
+    const paymentMethod = orderData.paymentMethod || 'manual';
+    const requiresConfirmation = ['e-money', 'transfer', 'shopeepay'].includes(paymentMethod);
     
     const docRef = await addDoc(collection(db, 'orders'), {
       userName: orderData.customerName,
       userEmail: 'manual-order@admin.local',
       items: orderData.items,
       totalAmount: orderData.totalAmount,
-      status: 'pending',
-      paymentMethod: 'manual',
+      status: requiresConfirmation ? 'awaiting_payment' : 'pending',
+      paymentMethod: paymentMethod,
       paymentStatus: 'pending',
       createdAt: serverTimestamp(),
-      expiryTime: Timestamp.fromDate(expiryTime),
+      awaitingPaymentAt: requiresConfirmation ? serverTimestamp() : null,
+      expiryTime: requiresConfirmation ? Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000)) : null,
       notes: orderData.notes,
       isManualOrder: true,
       createdBy: createdBy,
@@ -632,6 +635,34 @@ export const updateOrderPaymentMethod = async (orderId: string, paymentMethod: P
   try {
     await updateDoc(doc(db, 'orders', orderId), {
       paymentMethod: paymentMethod,
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const confirmPayment = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await updateDoc(doc(db, 'orders', orderId), {
+      status: 'payment_confirmed',
+      paymentStatus: 'paid',
+      paymentConfirmedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+export const moveToQueue = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    await updateDoc(doc(db, 'orders', orderId), {
+      status: 'pending',
+      expiryTime: null,
+      awaitingPaymentAt: null,
       updatedAt: serverTimestamp()
     });
     return { success: true };
@@ -710,11 +741,48 @@ export const cancelExpiredOrders = async (): Promise<{ success: boolean; error?:
   }
 };
 
+export const cancelExpiredAwaitingPaymentOrders = async (): Promise<{ success: boolean; error?: string; cancelledCount?: number }> => {
+  try {
+    const now = Timestamp.now();
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'awaiting_payment'),
+      where('expiryTime', '<', now)
+    );
+    
+    const snapshot = await getDocs(q);
+    const batch = snapshot.docs.map(doc => 
+      updateDoc(doc.ref, { status: 'cancelled', cancelledAt: serverTimestamp() })
+    );
+    
+    await Promise.all(batch);
+    return { success: true, cancelledCount: snapshot.size };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
 export const subscribeToPendingOrders = (callback: (orders: Order[]) => void) => {
   const q = query(
     collection(db, 'orders'),
     where('status', '==', 'pending'),
     orderBy('createdAt', 'asc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    callback(orders);
+  });
+};
+
+export const subscribeToAwaitingPaymentOrders = (callback: (orders: Order[]) => void) => {
+  const q = query(
+    collection(db, 'orders'),
+    where('status', '==', 'awaiting_payment'),
+    orderBy('awaitingPaymentAt', 'asc')
   );
   
   return onSnapshot(q, (snapshot) => {
