@@ -395,6 +395,8 @@ export interface MenuItem {
   stock: number;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+  createdBy?: string;
+  updatedBy?: string;
 }
 
 export const getMenuItems = async (): Promise<{
@@ -425,11 +427,17 @@ export const addMenuItem = async (data: {
   stock: number;
 }): Promise<{ success: boolean; error?: string; id?: string }> => {
   try {
+    const storedUser = localStorage.getItem('needtea_user');
+    const userData = storedUser ? JSON.parse(storedUser) : null;
+    const adminEmail = userData?.email || 'unknown';
+    
     const validCategory: CategoryType = data.category === 'drink' ? 'drink' : 'food';
     
     const docRef = await addDoc(collection(db, 'menuItems'), {
       ...data,
       category: validCategory,
+      createdBy: adminEmail,
+      updatedBy: adminEmail,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -449,8 +457,16 @@ export const updateMenuItem = async (id: string, data: Partial<{
   stock: number;
 }>): Promise<{ success: boolean; error?: string }> => {
   try {
+    const storedUser = localStorage.getItem('needtea_user');
+    const userData = storedUser ? JSON.parse(storedUser) : null;
+    const adminEmail = userData?.email || 'unknown';
+    
     const itemRef = doc(db, 'menuItems', id);
-    const updateData: any = { ...data, updatedAt: serverTimestamp() };
+    const updateData: any = { 
+      ...data, 
+      updatedBy: adminEmail,
+      updatedAt: serverTimestamp() 
+    };
     
     if (data.category) {
       updateData.category = data.category === 'drink' ? 'drink' : 'food';
