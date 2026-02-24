@@ -940,6 +940,39 @@ export const subscribeToTodayCompletedOrders = (callback: (orders: Order[]) => v
   });
 };
 
+export const getMonthlyOrders = async (year: number, month: number): Promise<{
+  success: boolean;
+  error?: string;
+  orders: Order[];
+}> => {
+  try {
+    const startOfMonth = new Date(year, month - 1, 1);
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+    
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'completed'),
+      orderBy('completedAt', 'desc')
+    );
+    
+    const snapshot = await getDocs(q);
+    const allOrders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    
+    const filteredOrders = allOrders.filter(order => {
+      if (!order.completedAt) return false;
+      const completedDate = order.completedAt.toDate();
+      return completedDate >= startOfMonth && completedDate <= endOfMonth;
+    });
+    
+    return { success: true, orders: filteredOrders };
+  } catch (error: any) {
+    return { success: false, error: error.message, orders: [] };
+  }
+};
+
 export const getUserOrders = async (userEmail: string): Promise<{
   success: boolean;
   error?: string;
@@ -963,84 +996,36 @@ export const getUserOrders = async (userEmail: string): Promise<{
   }
 };
 
-export const getDailyStats = async (dateString: string): Promise<{
-  success: boolean;
-  error?: string;
-  stats: any;
-}> => {
-  try {
-    const date = new Date(dateString);
-    const startOfDay = new Date(date.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(date.setHours(23, 59, 59, 999));
-    
-    const q = query(
-      collection(db, 'orders'),
-      where('status', '==', 'completed'),
-      where('completedAt', '>=', Timestamp.fromDate(startOfDay)),
-      where('completedAt', '<=', Timestamp.fromDate(endOfDay))
-    );
-    
-    const snapshot = await getDocs(q);
-    const orders = snapshot.docs.map(doc => doc.data() as Order);
-    
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
-    const totalItems = orders.reduce((sum, order) => 
-      sum + order.items.reduce((itemSum, item) => itemSum + item.quantity, 0), 0
-    );
-    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-    
-    return {
-      success: true,
-      stats: {
-        totalOrders,
-        totalRevenue,
-        totalItems,
-        averageOrderValue,
-        date: dateString
-      }
-    };
-  } catch (error: any) {
-    return { 
-      success: false, 
-      error: error.message,
-      stats: {
-        totalOrders: 0,
-        totalRevenue: 0,
-        totalItems: 0,
-        averageOrderValue: 0,
-        date: dateString
-      }
-    };
-  }
-};
-
 export const getOrdersByDateRange = async (startDate: string, endDate: string): Promise<{
   success: boolean;
   error?: string;
   orders: Order[];
 }> => {
   try {
+    const q = query(
+      collection(db, 'orders'),
+      where('status', '==', 'completed'),
+      orderBy('completedAt', 'desc')
+    );
+    
+    const snapshot = await getDocs(q);
+    const allOrders = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    })) as Order[];
+    
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
     
-    const q = query(
-      collection(db, 'orders'),
-      where('status', '==', 'completed'),
-      where('completedAt', '>=', Timestamp.fromDate(start)),
-      where('completedAt', '<=', Timestamp.fromDate(end)),
-      orderBy('completedAt', 'desc')
-    );
+    const filteredOrders = allOrders.filter(order => {
+      if (!order.completedAt) return false;
+      const completedDate = order.completedAt.toDate();
+      return completedDate >= start && completedDate <= end;
+    });
     
-    const snapshot = await getDocs(q);
-    const orders = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    })) as Order[];
-    
-    return { success: true, orders };
+    return { success: true, orders: filteredOrders };
   } catch (error: any) {
     return { success: false, error: error.message, orders: [] };
   }
@@ -1058,12 +1043,17 @@ export const getMonthlyStats = async (year: number, month: number): Promise<{
     const q = query(
       collection(db, 'orders'),
       where('status', '==', 'completed'),
-      where('completedAt', '>=', Timestamp.fromDate(startOfMonth)),
-      where('completedAt', '<=', Timestamp.fromDate(endOfMonth))
+      orderBy('completedAt', 'desc')
     );
     
     const snapshot = await getDocs(q);
-    const orders = snapshot.docs.map(doc => doc.data() as Order);
+    const allOrders = snapshot.docs.map(doc => doc.data() as Order);
+    
+    const orders = allOrders.filter(order => {
+      if (!order.completedAt) return false;
+      const completedDate = order.completedAt.toDate();
+      return completedDate >= startOfMonth && completedDate <= endOfMonth;
+    });
     
     const totalOrders = orders.length;
     const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
@@ -1108,12 +1098,17 @@ export const getYearlyStats = async (year: number): Promise<{
     const q = query(
       collection(db, 'orders'),
       where('status', '==', 'completed'),
-      where('completedAt', '>=', Timestamp.fromDate(startOfYear)),
-      where('completedAt', '<=', Timestamp.fromDate(endOfYear))
+      orderBy('completedAt', 'desc')
     );
     
     const snapshot = await getDocs(q);
-    const orders = snapshot.docs.map(doc => doc.data() as Order);
+    const allOrders = snapshot.docs.map(doc => doc.data() as Order);
+    
+    const orders = allOrders.filter(order => {
+      if (!order.completedAt) return false;
+      const completedDate = order.completedAt.toDate();
+      return completedDate >= startOfYear && completedDate <= endOfYear;
+    });
     
     const totalOrders = orders.length;
     const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);

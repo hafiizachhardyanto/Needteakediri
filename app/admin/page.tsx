@@ -9,7 +9,6 @@ import {
   updateMenuItem,
   completeOrder,
   updateOrderStatus,
-  getDailyStats,
   cancelExpiredOrders,
   cancelExpiredAwaitingPaymentOrders,
   subscribeToPendingOrders,
@@ -25,24 +24,22 @@ import {
   getOrdersByDateRange,
   getMonthlyStats,
   getYearlyStats,
-  db,
   logoutUser
 } from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
-import { collection, getDocs, query, where, orderBy, Timestamp, addDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy, Timestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function AdminDashboard() {
   const router = useRouter();
   const { userData, isAdmin, loading: authLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'payment' | 'daily' | 'menu' | 'history' | 'manual'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'queue' | 'payment' | 'menu' | 'history' | 'manual'>('dashboard');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [awaitingPaymentOrders, setAwaitingPaymentOrders] = useState<any[]>([]);
   const [completedOrders, setCompletedOrders] = useState<any[]>([]);
   const [todayCompletedOrders, setTodayCompletedOrders] = useState<any[]>([]);
   const [todayStats, setTodayStats] = useState({ totalRevenue: 0, totalOrders: 0, totalItems: 0 });
   const [menuItems, setMenuItems] = useState<any[]>([]);
-  const [dailyStats, setDailyStats] = useState<any>(null);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -76,6 +73,12 @@ export default function AdminDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [paymentTimers, setPaymentTimers] = useState<{[key: string]: number}>({});
+
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [monthlyStats, setMonthlyStats] = useState<any>(null);
+  const [monthlyOrders, setMonthlyOrders] = useState<any[]>([]);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
@@ -149,6 +152,12 @@ export default function AdminDashboard() {
     return () => clearInterval(midnightCheck);
   }, []);
 
+  useEffect(() => {
+    if (isAdmin && activeTab === 'dashboard') {
+      loadMonthlyStats();
+    }
+  }, [isAdmin, activeTab, selectedMonth, selectedYear]);
+
   const calculateTodayStats = (orders: any[]) => {
     const totalRevenue = orders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
     const totalOrders = orders.length;
@@ -162,7 +171,7 @@ export default function AdminDashboard() {
     setLoading(true);
     await Promise.all([
       loadMenu(),
-      loadDailyStats()
+      loadMonthlyStats()
     ]);
     setLoading(false);
   };
@@ -173,12 +182,161 @@ export default function AdminDashboard() {
       setMenuItems(result.items || []);
     }
   };
-
-  const loadDailyStats = async () => {
-    const result = await getDailyStats(selectedDate);
-    if (result.success) {
-      setDailyStats(result.stats);
+      
+        const loadMonthlyStats = async () => {
+    setStatsLoading(true);
+    try {
+      const startOfMonth = new Date(selectedYear, selectedMonth - 1, 1);
+      const endOfMonth = new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999);
+      
+      const q = query(
+        collection(db, 'orders'),
+        where('status', 'in', ['completed', 'cancelled']),
+        orderBy('completedAt', 'desc')
+      );
+      
+      const snapshot = await getDocs(q);
+      const allOrders = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      })) as any[];
+      
+      const filteredOrders = allOrders.filter((order: any) => {
+        const orderDate = order.completedAt?.toDate?.() || order.createdAt?.toDate?.();
+        if (!orderDate) return false;
+        return orderDate >= startOfMonth && orderDate <= endOfMonth;
+      });
+      
+      setMonthlyOrders(filteredOrders);
+      
+      const completedOrdersInMonth = filteredOrders.filter((o: any) => o.status === 'completed');
+      const cancelledOrdersInMonth = filteredOrders.filter((o: any) => o.status === 'cancelled');
+      
+      const totalRevenue = completedOrdersInMonth.reduce((sum: number, order: any) => sum + (order.totalAmount || 0), 0);
+      const totalOrders = completedOrdersInMonth.length;
+      const totalItems = completedOrdersInMonth.reduce((sum: number, order: any) => 
+        sum + (order.items || []).reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0), 0
+      );
+      
+      const itemSales: {[key: string]: {name: string; quantity: number; revenue: number}} = {};
+      completedOrdersInMonth.forEach((order: any) => {
+        (order.items || []).forEach((item: any) => {
+          if (!itemSales[item.menuId]) {
+            itemSales[item.menuId] = { name: item.name, quantity: 0, revenue: 0 };
+          }
+          itemSales[item.menuId].quantity += item.quantity || 0;
+          itemSales[item.menuId].revenue += (item.price || 0) * (item.quantity || 0);
+        });
+      });
+      
+      const paymentMethods: {[key: string]: {count: number; amount: number}} = {};
+      completedOrdersInMonth.forEach((order: any) => {
+        const method = order.paymentMethod || 'unknown';
+        if (!paymentMethods[method]) {
+          paymentMethods[method] = { count: 0, amount: 0 };
+        }
+        paymentMethods[method].count += 1;
+        paymentMethods[method].amount += order.totalAmount || 0;
+      });
+      
+      const dailyRevenue: {[key: string]: number} = {};
+      completedOrdersInMonth.forEach((order: any) => {
+        const date = order.completedAt?.toDate?.();
+        if (date) {
+          const dateKey = date.toISOString().split('T')[0];
+          if (!dailyRevenue[dateKey]) dailyRevenue[dateKey] = 0;
+          dailyRevenue[dateKey] += order.totalAmount || 0;
+        }
+      });
+      
+      setMonthlyStats({
+        totalRevenue,
+        totalOrders,
+        totalItems,
+        totalCancelled: cancelledOrdersInMonth.length,
+        itemSales: Object.entries(itemSales).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.quantity - a.quantity),
+        paymentMethods,
+        dailyRevenue: Object.entries(dailyRevenue).map(([date, amount]) => ({ date, amount })).sort((a, b) => a.date.localeCompare(b.date))
+      });
+    } catch (error) {
+      console.error('Error loading monthly stats:', error);
     }
+    setStatsLoading(false);
+  };
+
+  const downloadMonthlyReport = () => {
+    if (!monthlyStats || monthlyOrders.length === 0) {
+      alert('Tidak ada data untuk diunduh');
+      return;
+    }
+    
+    const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const monthName = monthNames[selectedMonth - 1];
+    const filename = `laporan-${monthName}-${selectedYear}.csv`;
+    
+    let csvContent = '\ufeff';
+    
+    csvContent += `LAPORAN BULANAN NEEDTEA\n`;
+    csvContent += `Periode: ${monthName} ${selectedYear}\n\n`;
+    
+    csvContent += `RINGKASAN UMUM\n`;
+    csvContent += `Total Pendapatan,Rp ${monthlyStats.totalRevenue.toLocaleString()}\n`;
+    csvContent += `Total Pesanan Selesai,${monthlyStats.totalOrders}\n`;
+    csvContent += `Total Item Terjual,${monthlyStats.totalItems}\n`;
+    csvContent += `Total Pembatalan,${monthlyStats.totalCancelled}\n\n`;
+    
+    csvContent += `PENJUALAN PER ITEM\n`;
+    csvContent += `Nama Item,Jumlah Terjual,Total Pendapatan\n`;
+    monthlyStats.itemSales.forEach((item: any) => {
+      csvContent += `"${item.name}",${item.quantity},Rp ${item.revenue.toLocaleString()}\n`;
+    });
+    csvContent += `\n`;
+    
+    csvContent += `PENGGUNAAN METODE PEMBAYARAN\n`;
+    csvContent += `Metode Pembayaran,Jumlah Transaksi,Total Nilai\n`;
+    Object.entries(monthlyStats.paymentMethods).forEach(([method, data]: [string, any]) => {
+      const methodLabels: {[key: string]: string} = {
+        'cash': 'Tunai',
+        'e-money': 'E-Money',
+        'transfer': 'Transfer Bank',
+        'shopeepay': 'ShopeePay',
+        'manual': 'Manual'
+      };
+      csvContent += `"${methodLabels[method] || method}",${data.count},Rp ${data.amount.toLocaleString()}\n`;
+    });
+    csvContent += `\n`;
+    
+    csvContent += `PENDAPATAN HARIAN\n`;
+    csvContent += `Tanggal,Pendapatan\n`;
+    monthlyStats.dailyRevenue.forEach((day: any) => {
+      csvContent += `${day.date},Rp ${day.amount.toLocaleString()}\n`;
+    });
+    csvContent += `\n`;
+    
+    csvContent += `DETAIL TRANSAKSI\n`;
+    csvContent += `Tanggal,Nama Pelanggan,Item,Total,Metode Pembayaran,Status\n`;
+    monthlyOrders.forEach((order: any) => {
+      const date = order.completedAt?.toDate?.().toLocaleString('id-ID') || order.createdAt?.toDate?.().toLocaleString('id-ID') || '-';
+      const items = (order.items || []).map((i: any) => `${i.quantity}x ${i.name}`).join('; ');
+      const methodLabels: {[key: string]: string} = {
+        'cash': 'Tunai',
+        'e-money': 'E-Money',
+        'transfer': 'Transfer Bank',
+        'shopeepay': 'ShopeePay',
+        'manual': 'Manual'
+      };
+      const status = order.status === 'completed' ? 'Selesai' : 'Dibatalkan';
+      csvContent += `"${date}","${order.userName || '-'}","${items}",Rp ${(order.totalAmount || 0).toLocaleString()},"${methodLabels[order.paymentMethod] || order.paymentMethod || '-'}","${status}"\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleAddMenu = async (e: React.FormEvent) => {
@@ -245,7 +403,6 @@ export default function AdminDashboard() {
     const result = await completeOrder(orderId);
     if (result.success) {
       alert('Pesanan berhasil diselesaikan!');
-      loadDailyStats();
     } else {
       alert('Gagal: ' + result.error);
     }
@@ -555,6 +712,17 @@ export default function AdminDashboard() {
     return labels[method] || method;
   };
 
+  const getPaymentMethodColor = (method: string) => {
+    const colors: {[key: string]: string} = {
+      'cash': 'bg-green-500',
+      'e-money': 'bg-blue-500',
+      'transfer': 'bg-purple-500',
+      'shopeepay': 'bg-orange-500',
+      'manual': 'bg-gray-500'
+    };
+    return colors[method] || 'bg-gray-500';
+  };
+
   const handleLogout = async () => {
     if (confirm('Apakah Anda yakin ingin keluar?')) {
       await logoutUser();
@@ -572,6 +740,8 @@ export default function AdminDashboard() {
   );
   
   if (!isAdmin) return null;
+
+  const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans">
@@ -611,7 +781,6 @@ export default function AdminDashboard() {
             { key: 'manual', label: 'Buat Pesanan', icon: '✍️' },
             { key: 'queue', label: `Antrian`, icon: '⏳', count: pendingOrders.length },
             { key: 'payment', label: `Konfirmasi Bayar`, icon: '💳', count: awaitingPaymentOrders.length },
-            { key: 'daily', label: 'Pesanan Harian', icon: '📅' },
             { key: 'menu', label: 'Kelola Menu', icon: '🍽️' },
             { key: 'history', label: 'Riwayat', icon: '📜' }
           ].map((tab) => (
@@ -703,6 +872,138 @@ export default function AdminDashboard() {
                   </p>
                 </div>
               </div>
+            </div>
+
+            <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-slate-700/50 backdrop-blur-sm">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4">
+                <h3 className="text-base sm:text-lg font-bold text-slate-200">Statistik Bulanan</h3>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:border-indigo-500 outline-none"
+                  >
+                    {monthNames.map((name, idx) => (
+                      <option key={idx + 1} value={idx + 1}>{name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:border-indigo-500 outline-none"
+                  >
+                    {[2024, 2025, 2026].map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={downloadMonthlyReport}
+                    disabled={statsLoading || !monthlyStats}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 rounded-lg font-medium text-sm transition-all flex items-center space-x-2"
+                  >
+                    <span>📥</span>
+                    <span>Download</span>
+                  </button>
+                </div>
+              </div>
+
+              {statsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+                </div>
+              ) : monthlyStats ? (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <p className="text-slate-400 text-xs mb-1">Total Pendapatan</p>
+                      <p className="text-xl font-bold text-emerald-400">Rp {monthlyStats.totalRevenue.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <p className="text-slate-400 text-xs mb-1">Total Pesanan</p>
+                      <p className="text-xl font-bold text-blue-400">{monthlyStats.totalOrders}</p>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <p className="text-slate-400 text-xs mb-1">Total Item</p>
+                      <p className="text-xl font-bold text-purple-400">{monthlyStats.totalItems}</p>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <p className="text-slate-400 text-xs mb-1">Pembatalan</p>
+                      <p className="text-xl font-bold text-red-400">{monthlyStats.totalCancelled}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <h4 className="font-semibold mb-4 text-slate-200">Penjualan per Item</h4>
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {monthlyStats.itemSales.length > 0 ? monthlyStats.itemSales.map((item: any, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-slate-200 text-sm">{item.name}</p>
+                              <p className="text-xs text-slate-500">{item.quantity} terjual</p>
+                            </div>
+                            <p className="font-bold text-emerald-400 text-sm">Rp {item.revenue.toLocaleString()}</p>
+                          </div>
+                        )) : (
+                          <p className="text-slate-500 text-center py-4">Tidak ada data penjualan</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                      <h4 className="font-semibold mb-4 text-slate-200">Metode Pembayaran</h4>
+                      <div className="space-y-3">
+                        {Object.entries(monthlyStats.paymentMethods).length > 0 ? Object.entries(monthlyStats.paymentMethods).map(([method, data]: [string, any], idx: number) => (
+                          <div key={idx} className="p-3 bg-slate-900/50 rounded-lg">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-slate-200 text-sm">{getPaymentMethodLabel(method)}</span>
+                              <span className="text-xs text-slate-400">{data.count} transaksi</span>
+                            </div>
+                            <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
+                              <div 
+                                className={`h-2 rounded-full ${getPaymentMethodColor(method)}`}
+                                style={{ width: `${monthlyStats.totalOrders > 0 ? (data.count / monthlyStats.totalOrders) * 100 : 0}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-emerald-400 font-medium">Rp {data.amount.toLocaleString()}</p>
+                          </div>
+                        )) : (
+                          <p className="text-slate-500 text-center py-4">Tidak ada data pembayaran</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <h4 className="font-semibold mb-4 text-slate-200">Pendapatan Harian</h4>
+                    <div className="h-64 flex items-end space-x-2 overflow-x-auto pb-2">
+                      {monthlyStats.dailyRevenue.length > 0 ? monthlyStats.dailyRevenue.map((day: any, idx: number) => {
+                        const maxAmount = Math.max(...monthlyStats.dailyRevenue.map((d: any) => d.amount));
+                        const height = maxAmount > 0 ? (day.amount / maxAmount) * 100 : 0;
+                        return (
+                          <div key={idx} className="flex flex-col items-center min-w-[40px] flex-1">
+                            <div 
+                              className="w-full bg-indigo-500/50 hover:bg-indigo-500 rounded-t transition-all relative group"
+                              style={{ height: `${Math.max(height, 5)}%` }}
+                            >
+                              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-800 px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity border border-slate-700">
+                                Rp {day.amount.toLocaleString()}
+                              </div>
+                            </div>
+                            <span className="text-xs text-slate-500 mt-2">{day.date.split('-')[2]}</span>
+                          </div>
+                        );
+                      }) : (
+                        <div className="w-full flex items-center justify-center text-slate-500">Tidak ada data harian</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-slate-500">
+                  <p>Tidak ada data untuk bulan ini</p>
+                </div>
+              )}
             </div>
 
             <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl p-4 sm:p-8 border border-slate-700/50 backdrop-blur-sm">
@@ -1118,50 +1419,6 @@ export default function AdminDashboard() {
                 })}
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === 'daily' && (
-          <div>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4">
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-100">Pesanan Harian</h2>
-              <div className="flex items-center space-x-4 bg-slate-800/50 p-2 rounded-xl border border-slate-700 w-full sm:w-auto">
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => {
-                    setSelectedDate(e.target.value);
-                    getDailyStats(e.target.value).then(r => {
-                      if (r.success) setDailyStats(r.stats);
-                    });
-                  }}
-                  className="px-3 sm:px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:border-indigo-500 outline-none text-sm sm:text-base w-full sm:w-auto"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
-              {[
-                { label: 'Total Pesanan', value: dailyStats?.totalOrders || 0, color: 'blue', icon: '📋' },
-                { label: 'Total Item', value: dailyStats?.totalItems || 0, color: 'purple', icon: '📦' },
-                { label: 'Total Pendapatan', value: `Rp ${(dailyStats?.totalRevenue || 0).toLocaleString()}`, color: 'emerald', icon: '💰' },
-                { label: 'Rata-rata Order', value: `Rp ${Math.round(dailyStats?.averageOrderValue || 0).toLocaleString()}`, color: 'yellow', icon: '📊' }
-              ].map((stat, idx) => (
-                <div key={idx} className="bg-slate-800/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 border border-slate-700 hover:border-slate-600 transition-all">
-                  <div className="flex items-center justify-between mb-2 sm:mb-4">
-                    <span className="text-xl sm:text-2xl">{stat.icon}</span>
-                    <div className={`w-2 h-2 rounded-full bg-${stat.color}-500`}></div>
-                  </div>
-                  <p className="text-slate-400 text-xs sm:text-sm mb-1">{stat.label}</p>
-                  <p className={`text-lg sm:text-2xl font-bold text-${stat.color}-400`}>{stat.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-slate-800/30 rounded-xl sm:rounded-2xl p-8 sm:p-12 text-center border border-slate-700/50 border-dashed">
-              <div className="text-3xl sm:text-4xl mb-4">📈</div>
-              <p className="text-slate-400 text-sm sm:text-base">Statistik detail akan ditampilkan di sini</p>
-            </div>
           </div>
         )}
 
