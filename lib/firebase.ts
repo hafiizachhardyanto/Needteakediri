@@ -581,6 +581,63 @@ export const restoreStockFromOrder = async (items: { menuId: string; quantity: n
   }
 };
 
+export const subscribeToMenuItems = (callback: (items: any[]) => void) => {
+  const q = query(collection(db, 'menuItems'), orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, (snapshot) => {
+    const items = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    callback(items);
+  });
+};
+
+export const subscribeToUserOrders = (userEmail: string, callback: (orders: any[]) => void) => {
+  const q = query(
+    collection(db, 'orders'),
+    where('userEmail', '==', userEmail),
+    orderBy('createdAt', 'desc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    callback(orders);
+  });
+};
+
+export const cancelOrder = async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const orderRef = doc(db, 'orders', orderId);
+    const orderDoc = await getDoc(orderRef);
+    
+    if (!orderDoc.exists()) {
+      return { success: false, error: 'Pesanan tidak ditemukan' };
+    }
+    
+    const orderData = orderDoc.data();
+    
+    if (orderData.items) {
+      await restoreStockFromOrder(orderData.items.map((item: any) => ({
+        menuId: item.menuId,
+        quantity: item.quantity
+      })));
+    }
+    
+    await updateDoc(orderRef, {
+      status: 'cancelled',
+      cancelledAt: serverTimestamp()
+    });
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
 export const deductStockForOrder = async (items: { menuId: string; quantity: number }[]): Promise<{ success: boolean; error?: string }> => {
   try {
     for (const item of items) {

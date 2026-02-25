@@ -1,69 +1,81 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import FloatingLeaves from '@/components/FloatingLeaves';
 import Navbar from '@/components/Navbar';
-import { createOrder, cancelExpiredOrders } from '@/lib/firebase';
 import useAuth from '@/hooks/useAuth';
+import { createOrder, deductStockForOrder } from '@/lib/firebase';
+import { serverTimestamp, Timestamp } from 'firebase/firestore';
 
 interface CartItem {
-  id: string;
+  menuId: string;
   name: string;
   price: number;
   quantity: number;
-  image: string;
+  image?: string;
+  maxStock: number;
 }
 
 export default function OrderPage() {
   const router = useRouter();
   const { userData, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<'shopeepay' | 'cash'>('cash');
+  const [shopeepayNumber, setShopeepayNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Cek login saat load
   useEffect(() => {
     if (!authLoading && !userData) {
-      // Simpan cart dan redirect ke login
       localStorage.setItem('needtea_redirect_after_login', '/order');
-      alert('Silakan login terlebih dahulu untuk melanjutkan pemesanan');
       router.push('/login?redirect=/order');
       return;
     }
 
     const savedCart = localStorage.getItem('needtea_cart');
     if (savedCart) {
-      setCart(JSON.parse(savedCart));
+      const parsedCart = JSON.parse(savedCart);
+      if (parsedCart.length === 0) {
+        router.push('/menu');
+        return;
+      }
+      setCart(parsedCart);
     } else {
       router.push('/menu');
     }
-    
-    // Cek expired orders periodically
-    const interval = setInterval(() => {
-      cancelExpiredOrders();
-    }, 30000); // Check every 30 seconds
-    
-    return () => clearInterval(interval);
   }, [userData, authLoading, router]);
 
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
   const handleOrder = async () => {
-    if (!userData) {
-      alert('Silakan login terlebih dahulu');
-      router.push('/login?redirect=/order');
+    if (!shopeepayNumber.trim()) {
+      alert('Masukkan nomor ShopeePay!');
+      return;
+    }
+
+    if (!/^\d{10,13}$/.test(shopeepayNumber)) {
+      alert('Nomor ShopeePay tidak valid! (10-13 digit)');
       return;
     }
 
     setLoading(true);
-    
+
+    const stockCheck = await deductStockForOrder(cart.map(item => ({
+      menuId: item.menuId,
+      quantity: item.quantity
+    })));
+
+    if (!stockCheck.success) {
+      alert(stockCheck.error);
+      setLoading(false);
+      return;
+    }
+
     const orderData = {
       userEmail: userData.email,
       userName: userData.name,
       items: cart.map(item => ({
-        menuId: item.id,
+        menuId: item.menuId,
         name: item.name,
         price: item.price,
         quantity: item.quantity,
@@ -71,16 +83,20 @@ export default function OrderPage() {
         image: item.image
       })),
       totalAmount,
-      paymentMethod,
-      shopeepayNumber: paymentMethod === 'shopeepay' ? '085702506241' : undefined,
-      status: 'pending' as const // <-- TAMBAHAN: Tambahkan status pending
+      paymentMethod: 'shopeepay' as const,
+      shopeepayNumber: shopeepayNumber,
+      status: 'awaiting_payment' as const,
+      paymentStatus: 'pending' as const,
+      createdAt: serverTimestamp(),
+      awaitingPaymentAt: serverTimestamp(),
+      expiryTime: Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000))
     };
 
     const result = await createOrder(orderData);
     
     if (result.success) {
       localStorage.removeItem('needtea_cart');
-      router.push(`/order-success?orderId=${result.orderId}`); // <-- PERUBAHAN: Gunakan result.orderId bukan result.id
+      router.push(`/order-success?orderId=${result.orderId}`);
     } else {
       alert('Gagal membuat pesanan: ' + result.error);
     }
@@ -88,9 +104,8 @@ export default function OrderPage() {
     setLoading(false);
   };
 
-  const handleShopeePay = () => {
-    window.open('https://shopee.co.id/m/shopeepay', '_blank');
-    setPaymentMethod('shopeepay');
+  const openShopeeApp = () => {
+    window.open('shopeeid://', '_blank');
   };
 
   if (authLoading) {
@@ -117,15 +132,13 @@ export default function OrderPage() {
       <div className="relative z-10 pt-24 pb-12 px-4">
         <div className="max-w-2xl mx-auto">
           
-          {/* ⭐ WARNING TIMEOUT */}
           <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-4 mb-6 text-center">
             <p className="text-red-100 font-bold">⏰ Batas Waktu Pembayaran: 30 Menit</p>
-            <p className="text-red-200 text-sm">Jika melebihi 30 menit, pesanan akan dibatalkan otomatis</p>
+            <p className="text-red-200 text-sm">Setelah checkout, segera lakukan pembayaran</p>
           </div>
 
-          <h1 className="text-3xl font-bold text-white text-center mb-8">Konfirmasi Pesanan</h1>
+          <h1 className="text-3xl font-bold text-white text-center mb-8">Checkout</h1>
           
-          {/* Order Summary */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 mb-6">
             <h2 className="text-xl font-bold text-white mb-4">Detail Pesanan</h2>
             
@@ -152,67 +165,46 @@ export default function OrderPage() {
             </div>
           </div>
 
-          {/* Payment Method */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 mb-6">
-            <h2 className="text-xl font-bold text-white mb-4">Metode Pembayaran</h2>
+            <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+              <span className="mr-2">🧡</span>
+              Pembayaran ShopeePay
+            </h2>
             
-            <div className="space-y-3">
-              <label className="flex items-center p-4 bg-white/10 rounded-xl cursor-pointer hover:bg-white/20 transition-all">
-                <input
-                  type="radio"
-                  name="payment"
-                  value="cash"
-                  checked={paymentMethod === 'cash'}
-                  onChange={() => setPaymentMethod('cash')}
-                  className="w-5 h-5 mr-4"
-                />
-                <span className="text-2xl mr-3">💵</span>
-                <div>
-                  <p className="text-white font-medium">Bayar Tunai</p>
-                  <p className="text-white/60 text-sm">Bayar di tempat saat pengambilan</p>
-                </div>
-              </label>
-
-              <label className="flex items-center p-4 bg-white/10 rounded-xl cursor-pointer hover:bg-white/20 transition-all">
-                <input
-                  type="radio"
-                  name="payment"
-                  value="shopeepay"
-                  checked={paymentMethod === 'shopeepay'}
-                  onChange={() => setPaymentMethod('shopeepay')}
-                  className="w-5 h-5 mr-4"
-                />
-                <span className="text-2xl mr-3">🧡</span>
-                <div>
-                  <p className="text-white font-medium">ShopeePay</p>
-                  <p className="text-white/60 text-sm">Transfer ke 0857-0250-6241</p>
-                </div>
-              </label>
+            <div className="bg-orange-500/20 border border-orange-400/30 rounded-xl p-4 mb-4">
+              <p className="text-orange-100 text-sm mb-2">Transfer ke ShopeePay:</p>
+              <p className="text-white text-2xl font-bold">0857-0250-6241</p>
+              <p className="text-orange-200 text-sm mt-1">A/N: NeedTea Official</p>
+              <button
+                onClick={openShopeeApp}
+                className="mt-3 w-full py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition-all"
+              >
+                Buka Aplikasi Shopee
+              </button>
             </div>
 
-            {paymentMethod === 'shopeepay' && (
-              <div className="mt-4 p-4 bg-orange-500/20 border border-orange-400/30 rounded-xl">
-                <p className="text-orange-100 text-sm mb-2">Nomor ShopeePay:</p>
-                <p className="text-white text-xl font-bold">0857-0250-6241</p>
-                <p className="text-orange-200 text-sm mt-1">A/N: NeedTea Kediri</p>
-                <button
-                  onClick={handleShopeePay}
-                  className="mt-3 w-full py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 transition-all"
-                >
-                  Buka Aplikasi Shopee
-                </button>
-              </div>
-            )}
+            <div className="mb-4">
+              <label className="block text-white/80 text-sm mb-2">Nomor ShopeePay Anda</label>
+              <input
+                type="tel"
+                placeholder="08xxxxxxxxxx"
+                value={shopeepayNumber}
+                onChange={(e) => setShopeepayNumber(e.target.value)}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:border-orange-500 outline-none"
+              />
+              <p className="text-white/60 text-xs mt-2">
+                Pesanan akan masuk ke halaman konfirmasi admin. Timer 30 menit dimulai setelah checkout.
+              </p>
+            </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="space-y-3">
             <button
               onClick={() => setShowConfirm(true)}
               disabled={loading}
-              className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50"
+              className="w-full py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold text-lg shadow-lg hover:from-orange-400 hover:to-red-400 transition-all disabled:opacity-50"
             >
-              {loading ? 'Memproses...' : 'PESAN SEKARANG'}
+              {loading ? 'Memproses...' : 'BAYAR SEKARANG'}
             </button>
             
             <button
@@ -226,35 +218,32 @@ export default function OrderPage() {
         </div>
       </div>
 
-      {/* Confirmation Modal */}
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full">
             <div className="text-center">
-              <div className="text-6xl mb-4">📋</div>
-              <h3 className="text-2xl font-bold text-gray-800 mb-2">Konfirmasi Pesanan</h3>
+              <div className="text-6xl mb-4">🧡</div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2">Konfirmasi Pembayaran</h3>
               
-              {/* ⭐ WARNING DI MODAL */}
-              <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-3 mb-4">
-                <p className="text-yellow-800 text-sm">
-                  ⚠️ Anda memiliki <span className="font-bold">30 menit</span> untuk menyelesaikan pembayaran. 
-                  Jika lewat, pesanan akan <span className="font-bold text-red-600">dibatalkan otomatis</span>.
+              <div className="bg-orange-100 border border-orange-300 rounded-lg p-3 mb-4">
+                <p className="text-orange-800 text-sm">
+                  Anda memiliki <span className="font-bold">30 menit</span> untuk menyelesaikan pembayaran ke ShopeePay <span className="font-bold">0857-0250-6241</span>.
                 </p>
               </div>
               
               <p className="text-gray-600 mb-6">
-                Total: <span className="font-bold text-tea-600">Rp {totalAmount.toLocaleString()}</span>
+                Total: <span className="font-bold text-orange-600">Rp {totalAmount.toLocaleString()}</span>
                 <br />
-                Metode: {paymentMethod === 'cash' ? 'Bayar Tunai' : 'ShopeePay'}
+                Dari: {shopeepayNumber}
               </p>
               
               <div className="space-y-3">
                 <button
                   onClick={handleOrder}
                   disabled={loading}
-                  className="w-full py-3 bg-tea-600 text-white rounded-xl font-bold hover:bg-tea-700 transition-all"
+                  className="w-full py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-all"
                 >
-                  {loading ? 'Memproses...' : 'Ya, Pesan Sekarang'}
+                  {loading ? 'Memproses...' : 'Ya, Saya Sudah Transfer'}
                 </button>
                 <button
                   onClick={() => setShowConfirm(false)}
