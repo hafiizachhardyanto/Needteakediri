@@ -34,7 +34,7 @@ import {
 const firebaseConfig = {
   apiKey: "AIzaSyCGQgTom3RvQoURS6esMbh2lOm0FjXClF0",
   authDomain: "needtea-32554.firebaseapp.com",
-  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL: "https://needtea-32554-default-rtdb.asia-southeast1.firebasedatabase.app ",
   projectId: "needtea-32554",
   storageBucket: "needtea-32554.firebasestorage.app",
   messagingSenderId: "306781281475",
@@ -161,7 +161,6 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
         email,
         name: email.split('@')[0],
         role: 'user',
-        createdAt: serverTimestamp(),
         lastLogin: serverTimestamp(),
       });
       
@@ -256,12 +255,17 @@ export const checkUserExists = async (email: string): Promise<{ success: boolean
 
 export const saveUserToFirestore = async (email: string, userData: any): Promise<{ success: boolean; error?: string }> => {
   try {
-    await setDoc(doc(db, 'users', email), {
+    const dataToSave: any = {
       ...userData,
       email,
-      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    };
+    
+    if (!userData.createdAt) {
+      dataToSave.createdAt = serverTimestamp();
+    }
+    
+    await setDoc(doc(db, 'users', email), dataToSave);
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -281,23 +285,36 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
     if (userDoc.exists()) {
       const existingData = userDoc.data();
       
-      const safeUpdate = {
-        ...userData,
-        role: existingData.role,
-        createdAt: existingData.createdAt,
-        updatedAt: serverTimestamp(),
-      };
+      const safeUpdate: any = {};
+      
+      Object.keys(userData).forEach(key => {
+        if (userData[key] !== undefined) {
+          safeUpdate[key] = userData[key];
+        }
+      });
+      
+      safeUpdate.role = existingData.role;
+      safeUpdate.createdAt = existingData.createdAt;
+      safeUpdate.updatedAt = serverTimestamp();
       
       await updateDoc(userRef, safeUpdate);
       return { success: true, isNewUser: false, role: existingData.role };
     } else {
       const newRole = userData.role || 'user';
-      await setDoc(userRef, {
-        ...userData,
+      
+      const newUserData: any = {
         role: newRole,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+      };
+      
+      Object.keys(userData).forEach(key => {
+        if (userData[key] !== undefined && key !== 'role' && key !== 'createdAt' && key !== 'updatedAt') {
+          newUserData[key] = userData[key];
+        }
       });
+      
+      await setDoc(userRef, newUserData);
       return { success: true, isNewUser: true, role: newRole };
     }
   } catch (error: any) {
