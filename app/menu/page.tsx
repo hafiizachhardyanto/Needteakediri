@@ -2,10 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Navbar from '@/components/Navbar';
-import FloatingLeaves from '@/components/FloatingLeaves';
+import Link from 'next/link';
 import useAuth from '@/hooks/useAuth';
-import { getMenuItems, subscribeToMenuItems } from '@/lib/firebase';
+import { subscribeToMenuItems, logoutUser } from '@/lib/firebase';
 
 interface CartItem {
   menuId: string;
@@ -19,7 +18,7 @@ interface CartItem {
 
 export default function MenuPage() {
   const router = useRouter();
-  const { userData, loading: authLoading } = useAuth();
+  const { userData, isAdmin, loading: authLoading } = useAuth();
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,14 +53,14 @@ export default function MenuPage() {
   const addToCart = (item: any) => {
     const availableStock = getAvailableStock(item.id);
     if (availableStock <= 0) {
-      alert(`Stok ${item.name} habis!`);
+      alert(`STOK_HABIS: ${item.name}`);
       return;
     }
 
     const existingItem = cart.find(i => i.menuId === item.id);
     if (existingItem) {
       if (existingItem.quantity >= item.stock) {
-        alert(`Stok ${item.name} tidak mencukupi!`);
+        alert(`STOK_LIMIT: ${item.name}`);
         return;
       }
       setCart(prev => prev.map(i => 
@@ -90,7 +89,7 @@ export default function MenuPage() {
     if (!item) return;
 
     if (quantity > item.maxStock) {
-      alert(`Stok ${item.name} tidak mencukupi! Maksimum: ${item.maxStock}`);
+      alert(`STOK_LIMIT: ${item.name} [MAX: ${item.maxStock}]`);
       return;
     }
 
@@ -105,15 +104,22 @@ export default function MenuPage() {
 
   const handleCheckout = () => {
     if (cart.length === 0) {
-      alert('Keranjang masih kosong!');
+      alert('KERANJANG_KOSONG');
       return;
     }
     if (!userData) {
-      alert('Silakan login terlebih dahulu!');
+      alert('LOGIN_REQUIRED');
       router.push('/login?redirect=/menu');
       return;
     }
     router.push('/order');
+  };
+
+  const handleLogout = async () => {
+    if (confirm('LOGOUT_SYSTEM?')) {
+      await logoutUser();
+      window.location.reload();
+    }
   };
 
   const filteredItems = selectedCategory === 'all' 
@@ -122,95 +128,154 @@ export default function MenuPage() {
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700">
-        <div className="text-white text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/10 via-transparent to-fuchsia-500/10" />
+        <div className="relative z-10 text-center">
+          <div className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4 shadow-lg shadow-cyan-500/50" />
+          <p className="text-cyan-400 font-mono animate-pulse">LOADING_MENU...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen relative overflow-hidden">
-      <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
-      <div className="fixed inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.4%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')]"/>
-      <FloatingLeaves />
-      <Navbar />
+    <main className="min-h-screen bg-slate-950 text-slate-100 relative overflow-hidden">
+      <div className="fixed inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
+      
+      <div className="fixed inset-0 bg-gradient-to-b from-cyan-500/5 via-transparent to-fuchsia-500/5" />
+      
+      <div className="fixed top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50" />
+      <div className="fixed top-20 left-0 w-px h-40 bg-gradient-to-b from-cyan-400 to-transparent opacity-30 animate-pulse" />
+      <div className="fixed top-40 right-0 w-px h-60 bg-gradient-to-b from-fuchsia-400 to-transparent opacity-30 animate-pulse" />
+      
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-cyan-500/20">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+          <Link href="/" className="flex items-center space-x-3">
+            <span className="text-3xl filter drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]">🍵</span>
+            <span className="text-2xl font-black bg-gradient-to-r from-cyan-400 to-fuchsia-400 bg-clip-text text-transparent">
+              NeedTea
+            </span>
+          </Link>
+          
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/" className="text-slate-400 hover:text-cyan-400 transition-colors font-mono text-sm">
+              BERANDA
+            </Link>
+            <Link href="/menu" className="text-cyan-400 font-mono text-sm border-b-2 border-cyan-400 pb-1">
+              MENU
+            </Link>
+            <Link href="/cek-pesanan" className="text-slate-400 hover:text-cyan-400 transition-colors font-mono text-sm">
+              CEK_PESANAN
+            </Link>
+          </div>
+          
+          <div>
+            {userData ? (
+              <div className="flex items-center space-x-3">
+                <span className="text-emerald-400 font-mono text-sm hidden sm:inline">{userData.name}</span>
+                <button 
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-rose-500/20 border border-rose-400 text-rose-400 rounded-lg font-mono text-sm hover:bg-rose-500/30 transition-all"
+                >
+                  LOGOUT
+                </button>
+              </div>
+            ) : (
+              <Link href="/login">
+                <button className="px-6 py-2 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-lg font-mono text-sm hover:bg-cyan-500/30 transition-all shadow-lg shadow-cyan-500/20">
+                  LOGIN
+                </button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </nav>
 
-      <div className="relative z-10 pt-24 pb-12 px-4">
+      <div className="relative z-10 pt-28 pb-12 px-4">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Menu Kami</h1>
-            <p className="text-white/80 text-lg">Pilih favoritmu dan nikmati kesegarannya</p>
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center space-x-2 bg-cyan-500/10 backdrop-blur-sm border border-cyan-400/30 rounded-full px-4 py-2 mb-4">
+              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50" />
+              <span className="text-cyan-400 font-mono text-sm tracking-wider">MENU_DATABASE_LOADED</span>
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black text-white mb-4 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">
+              DIGITAL<span className="text-cyan-400">_</span>MENU
+            </h1>
+            <p className="text-slate-400 text-lg font-mono">Select items to initialize order protocol</p>
           </div>
 
-          <div className="flex justify-center space-x-2 mb-8">
+          <div className="flex justify-center space-x-3 mb-10">
             {[
-              { key: 'all', label: 'Semua', icon: '🍽️' },
-              { key: 'food', label: 'Makanan', icon: '🍰' },
-              { key: 'drink', label: 'Minuman', icon: '🥤' }
+              { key: 'all', label: 'ALL_ITEMS', icon: '🌐' },
+              { key: 'food', label: 'FOOD', icon: '🍰' },
+              { key: 'drink', label: 'DRINK', icon: '🥤' }
             ].map((cat) => (
               <button
                 key={cat.key}
                 onClick={() => setSelectedCategory(cat.key as any)}
-                className={`px-4 py-2 rounded-full font-medium transition-all ${
+                className={`px-6 py-3 rounded-lg font-mono text-sm transition-all border ${
                   selectedCategory === cat.key
-                    ? 'bg-white text-tea-600'
-                    : 'bg-white/20 text-white hover:bg-white/30'
+                    ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-lg shadow-cyan-500/30'
+                    : 'bg-slate-900/50 border-slate-700 text-slate-400 hover:border-fuchsia-400 hover:text-fuchsia-400'
                 }`}
               >
-                <span className="mr-1">{cat.icon}</span>
+                <span className="mr-2">{cat.icon}</span>
                 {cat.label}
               </button>
             ))}
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="md:col-span-2">
+          <div className="grid lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
               <div className="grid sm:grid-cols-2 gap-4">
                 {filteredItems.map((item) => {
                   const availableStock = getAvailableStock(item.id);
                   const isOutOfStock = availableStock <= 0;
+                  const isLowStock = availableStock < 5 && availableStock > 0;
 
                   return (
                     <div 
                       key={item.id} 
-                      className={`bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 transition-all ${
-                        isOutOfStock ? 'opacity-50' : 'hover:bg-white/20'
+                      className={`group bg-slate-900/60 backdrop-blur-md rounded-xl p-5 border transition-all duration-300 ${
+                        isOutOfStock 
+                          ? 'border-slate-800 opacity-50' 
+                          : 'border-cyan-500/30 hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/20'
                       }`}
                     >
                       <div className="flex items-start space-x-4">
-                        <div className="w-24 h-24 bg-white/20 rounded-xl flex items-center justify-center text-3xl flex-shrink-0 overflow-hidden">
+                        <div className="w-24 h-24 bg-slate-800 rounded-lg flex items-center justify-center text-3xl flex-shrink-0 overflow-hidden border border-slate-700 group-hover:border-cyan-500/50 transition-colors">
                           {item.image ? (
                             <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                           ) : (
-                            <span>{item.category === 'food' ? '🍰' : '🥤'}</span>
+                            <span className="filter drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">{item.category === 'food' ? '🍰' : '🥤'}</span>
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-bold text-lg truncate">{item.name}</h3>
-                          <p className="text-white/70 text-sm line-clamp-2 mb-2">{item.description}</p>
+                          <h3 className="text-white font-bold text-lg truncate font-mono mb-1 group-hover:text-cyan-400 transition-colors">{item.name}</h3>
+                          <p className="text-slate-400 text-sm line-clamp-2 mb-3 font-mono text-xs">{item.description}</p>
                           <div className="flex items-center justify-between mb-3">
-                            <span className="text-yellow-300 font-bold">Rp {item.price?.toLocaleString()}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              isOutOfStock ? 'bg-red-500/50 text-red-100' :
-                              availableStock < 5 ? 'bg-yellow-500/50 text-yellow-100' :
-                              'bg-green-500/50 text-green-100'
+                            <span className="text-fuchsia-400 font-bold font-mono">Rp {item.price?.toLocaleString()}</span>
+                            <span className={`text-xs px-2 py-1 rounded border font-mono ${
+                              isOutOfStock 
+                                ? 'bg-rose-500/20 border-rose-500/50 text-rose-400' 
+                                : isLowStock 
+                                  ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400' 
+                                  : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
                             }`}>
-                              Stok: {availableStock}
+                              {isOutOfStock ? 'STOK: 0' : `STOK: ${availableStock}`}
                             </span>
                           </div>
                           <button
                             onClick={() => !isOutOfStock && addToCart(item)}
                             disabled={isOutOfStock}
-                            className={`w-full py-2 rounded-lg font-medium transition-all ${
+                            className={`w-full py-2 rounded-lg font-mono text-sm transition-all border ${
                               isOutOfStock
-                                ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                                : 'bg-white/20 hover:bg-white/30 text-white'
+                                ? 'bg-slate-800 border-slate-700 text-slate-600 cursor-not-allowed'
+                                : 'bg-cyan-500/10 border-cyan-400/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-400'
                             }`}
                           >
-                            {isOutOfStock ? 'Stok Habis' : '+ Tambah ke Keranjang'}
+                            {isOutOfStock ? 'OFFLINE' : '+ ADD_TO_CART'}
                           </button>
                         </div>
                       </div>
@@ -220,50 +285,53 @@ export default function MenuPage() {
               </div>
             </div>
 
-            <div className="md:col-span-1">
-              <div className="sticky top-24 bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
-                <h2 className="text-white font-bold text-xl mb-4 flex items-center">
-                  <span>🛒</span>
-                  <span className="ml-2">Keranjang</span>
+            <div className="lg:col-span-1">
+              <div className="sticky top-28 bg-slate-900/80 backdrop-blur-md rounded-xl p-6 border border-fuchsia-500/30 shadow-lg shadow-fuchsia-500/10">
+                <h2 className="text-white font-bold text-xl mb-4 flex items-center font-mono">
+                  <span className="mr-2">🛒</span>
+                  <span>CART_SYSTEM</span>
                   {cart.length > 0 && (
-                    <span className="ml-auto bg-yellow-400 text-yellow-900 text-sm px-2 py-1 rounded-full">
+                    <span className="ml-auto bg-cyan-400 text-slate-950 text-xs px-2 py-1 rounded font-mono font-bold">
                       {cart.reduce((sum, i) => sum + i.quantity, 0)}
                     </span>
                   )}
                 </h2>
 
                 {cart.length === 0 ? (
-                  <p className="text-white/60 text-center py-8">Keranjang masih kosong</p>
+                  <div className="text-center py-8 border-2 border-dashed border-slate-800 rounded-lg">
+                    <p className="text-slate-500 font-mono text-sm">CART_EMPTY</p>
+                    <p className="text-slate-600 text-xs mt-1">Waiting for input...</p>
+                  </div>
                 ) : (
-                  <div className="space-y-4 mb-6">
+                  <div className="space-y-3 mb-6 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
                     {cart.map((item) => (
-                      <div key={item.menuId} className="bg-white/10 rounded-xl p-3">
+                      <div key={item.menuId} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700">
                         <div className="flex justify-between items-start mb-2">
-                          <span className="text-white font-medium text-sm">{item.name}</span>
+                          <span className="text-white font-medium text-sm font-mono truncate pr-2">{item.name}</span>
                           <button 
                             onClick={() => updateQuantity(item.menuId, 0)}
-                            className="text-red-400 hover:text-red-300"
+                            className="text-rose-400 hover:text-rose-300 text-xs font-mono"
                           >
-                            ✕
+                            [X]
                           </button>
                         </div>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
                             <button 
                               onClick={() => updateQuantity(item.menuId, item.quantity - 1)}
-                              className="w-6 h-6 bg-white/20 rounded text-white hover:bg-white/30 flex items-center justify-center"
+                              className="w-6 h-6 bg-slate-700 rounded text-cyan-400 hover:bg-slate-600 flex items-center justify-center font-mono text-sm border border-slate-600"
                             >
                               -
                             </button>
-                            <span className="text-white w-8 text-center">{item.quantity}</span>
+                            <span className="text-white w-8 text-center font-mono text-sm">{item.quantity}</span>
                             <button 
                               onClick={() => updateQuantity(item.menuId, item.quantity + 1)}
-                              className="w-6 h-6 bg-white/20 rounded text-white hover:bg-white/30 flex items-center justify-center"
+                              className="w-6 h-6 bg-slate-700 rounded text-cyan-400 hover:bg-slate-600 flex items-center justify-center font-mono text-sm border border-slate-600"
                             >
                               +
                             </button>
                           </div>
-                          <span className="text-yellow-300 text-sm">
+                          <span className="text-fuchsia-400 text-sm font-mono">
                             Rp {(item.price * item.quantity).toLocaleString()}
                           </span>
                         </div>
@@ -274,19 +342,23 @@ export default function MenuPage() {
 
                 {cart.length > 0 && (
                   <>
-                    <div className="border-t border-white/20 pt-4 mb-4">
-                      <div className="flex justify-between items-center text-white">
-                        <span className="font-medium">Total</span>
-                        <span className="text-2xl font-bold text-yellow-300">
+                    <div className="border-t border-slate-700 pt-4 mb-4">
+                      <div className="flex justify-between items-center text-white mb-1">
+                        <span className="font-mono text-sm text-slate-400">SUBTOTAL</span>
+                        <span className="text-lg font-bold text-fuchsia-400 font-mono">
                           Rp {calculateTotal().toLocaleString()}
                         </span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs text-slate-500 font-mono">
+                        <span>TAX_INCLUDED</span>
+                        <span>ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</span>
                       </div>
                     </div>
                     <button
                       onClick={handleCheckout}
-                      className="w-full py-3 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 text-white rounded-xl font-bold transition-all"
+                      className="w-full py-3 bg-gradient-to-r from-cyan-500 to-fuchsia-500 hover:from-cyan-400 hover:to-fuchsia-400 text-slate-950 rounded-lg font-bold font-mono transition-all shadow-lg shadow-cyan-500/25"
                     >
-                      Lanjut ke Pembayaran
+                      PROCEED_TO_CHECKOUT →
                     </button>
                   </>
                 )}
@@ -295,6 +367,22 @@ export default function MenuPage() {
           </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.5);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(34, 211, 238, 0.3);
+          border-radius: 2px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(34, 211, 238, 0.5);
+        }
+      `}</style>
     </main>
   );
 }
