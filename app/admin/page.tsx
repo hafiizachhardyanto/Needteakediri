@@ -52,6 +52,27 @@ export default function AdminDashboard() {
     stock: ''
   });
 
+const handleMenuImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, mode: 'add' | 'edit') => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  if (file.size > 2 * 1024 * 1024) {
+    alert('Ukuran file maksimal 2MB');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const base64String = reader.result as string;
+    if (mode === 'add') {
+      setNewMenu(prev => ({ ...prev, image: base64String }));
+    } else {
+      setEditingMenu((prev: any) => ({ ...prev, image: base64String }));
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
   const [editingMenu, setEditingMenu] = useState<any>(null);
   const [showEditMenu, setShowEditMenu] = useState(false);
 
@@ -1643,192 +1664,267 @@ export default function AdminDashboard() {
 
       </div>
 
-      {showAddMenu && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-8 w-full max-w-md border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-slate-100">Tambah Menu Baru</h3>
-            <form onSubmit={handleAddMenu} className="space-y-4 sm:space-y-5">
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Nama Menu</label>
-                <input
-                  type="text"
-                  placeholder="Nama menu"
-                  value={newMenu.name}
-                  onChange={(e) => setNewMenu({...newMenu, name: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Deskripsi</label>
-                <textarea
-                  placeholder="Deskripsi menu"
-                  value={newMenu.description}
-                  onChange={(e) => setNewMenu({...newMenu, description: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none resize-none text-sm sm:text-base"
-                  rows={3}
-                />
-              </div>
+{showAddMenu && (
+  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+    <div className="bg-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-8 w-full max-w-md border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-slate-100">Tambah Menu Baru</h3>
+      <form onSubmit={handleAddMenu} className="space-y-4 sm:space-y-5">
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Nama Menu</label>
+          <input
+            type="text"
+            placeholder="Nama menu"
+            value={newMenu.name}
+            onChange={(e) => setNewMenu({...newMenu, name: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+            required
+          />
+        </div>
+        
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Deskripsi</label>
+          <textarea
+            placeholder="Deskripsi menu"
+            value={newMenu.description}
+            onChange={(e) => setNewMenu({...newMenu, description: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none resize-none text-sm sm:text-base"
+            rows={3}
+          />
+        </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-slate-400 mb-2">Harga (Rp)</label>
-                  <input
-                    type="number"
-                    placeholder="Harga"
-                    value={newMenu.price}
-                    onChange={(e) => setNewMenu({...newMenu, price: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-slate-400 mb-2">Stok</label>
-                  <input
-                    type="number"
-                    placeholder="Jumlah stok"
-                    value={newMenu.stock}
-                    onChange={(e) => setNewMenu({...newMenu, stock: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                    min="0"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Kategori</label>
-                <select
-                  value={newMenu.category}
-                  onChange={(e) => setNewMenu({...newMenu, category: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                >
-                  <option value="food">🍰 Makanan</option>
-                  <option value="drink">🥤 Minuman</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">URL Gambar (opsional)</label>
-                <input
-                  type="url"
-                  placeholder="https://example.com/image.jpg"
-                  value={newMenu.image}
-                  onChange={(e) => setNewMenu({...newMenu, image: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                />
-              </div>
-
-              <div className="flex space-x-2 sm:space-x-3 pt-2 sm:pt-4">
-                <button type="submit" className="flex-1 py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg sm:rounded-xl font-bold transition-all text-sm sm:text-base">
-                  Simpan
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setShowAddMenu(false);
-                    setNewMenu({ name: '', description: '', price: '', category: 'food', image: '', stock: '' });
-                  }} 
-                  className="flex-1 py-2.5 sm:py-3 bg-slate-700 hover:bg-slate-600 rounded-lg sm:rounded-xl transition-all text-sm sm:text-base"
-                >
-                  Batal
-                </button>
-              </div>
-            </form>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <div>
+            <label className="block text-xs sm:text-sm text-slate-400 mb-2">Harga (Rp)</label>
+            <input
+              type="number"
+              placeholder="Harga"
+              value={newMenu.price}
+              onChange={(e) => setNewMenu({...newMenu, price: e.target.value})}
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs sm:text-sm text-slate-400 mb-2">Stok</label>
+            <input
+              type="number"
+              placeholder="Jumlah stok"
+              value={newMenu.stock}
+              onChange={(e) => setNewMenu({...newMenu, stock: e.target.value})}
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+              min="0"
+            />
           </div>
         </div>
-      )}
+
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Kategori</label>
+          <select
+            value={newMenu.category}
+            onChange={(e) => setNewMenu({...newMenu, category: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+          >
+            <option value="food">🍰 Makanan</option>
+            <option value="drink">🥤 Minuman</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Gambar (Opsional)</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleMenuImageUpload(e, 'add')}
+            className="hidden"
+            id="menu-image-add"
+          />
+          
+          {newMenu.image ? (
+            <div className="space-y-3">
+              <div className="relative w-full h-40 sm:h-48 bg-slate-900 rounded-xl overflow-hidden">
+                <img 
+                  src={newMenu.image} 
+                  alt="Preview" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="flex space-x-2 sm:space-x-3">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('menu-image-add')?.click()}
+                  className="flex-1 py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg sm:rounded-xl font-medium transition-all text-sm sm:text-base"
+                >
+                  🔄 Ganti Gambar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewMenu({...newMenu, image: ''})}
+                  className="flex-1 py-2.5 sm:py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg sm:rounded-xl font-medium transition-all text-sm sm:text-base"
+                >
+                  🗑️ Hapus
+                </button>
+              </div>
+            </div>
+          ) : (
+            <label 
+              htmlFor="menu-image-add"
+              className="w-full py-6 sm:py-8 border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-xl text-slate-400 hover:text-indigo-400 transition-all flex flex-col items-center space-y-2 cursor-pointer"
+            >
+              <span className="text-2xl sm:text-3xl">📷</span>
+              <span className="text-sm sm:text-base">Klik untuk upload gambar</span>
+              <span className="text-xs text-slate-500">Maksimal 2MB</span>
+            </label>
+          )}
+        </div>
+
+        <div className="flex space-x-2 sm:space-x-3 pt-2 sm:pt-4">
+          <button type="submit" className="flex-1 py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg sm:rounded-xl font-bold transition-all text-sm sm:text-base">
+            Simpan
+          </button>
+          <button 
+            type="button" 
+            onClick={() => {
+              setShowAddMenu(false);
+              setNewMenu({ name: '', description: '', price: '', category: 'food', image: '', stock: '' });
+            }} 
+            className="flex-1 py-2.5 sm:py-3 bg-slate-700 hover:bg-slate-600 rounded-lg sm:rounded-xl transition-all text-sm sm:text-base"
+          >
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
 
       {showEditMenu && editingMenu && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-8 w-full max-w-md border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-slate-100">Edit Menu</h3>
-            <form onSubmit={handleEditMenu} className="space-y-4 sm:space-y-5">
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Nama Menu</label>
-                <input
-                  type="text"
-                  value={editingMenu.name}
-                  onChange={(e) => setEditingMenu({...editingMenu, name: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Deskripsi</label>
-                <textarea
-                  value={editingMenu.description || ''}
-                  onChange={(e) => setEditingMenu({...editingMenu, description: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none resize-none text-sm sm:text-base"
-                  rows={3}
-                />
-              </div>
+  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+    <div className="bg-slate-800 rounded-xl sm:rounded-2xl p-4 sm:p-8 w-full max-w-md border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-slate-100">Edit Menu</h3>
+      <form onSubmit={handleEditMenu} className="space-y-4 sm:space-y-5">
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Nama Menu</label>
+          <input
+            type="text"
+            value={editingMenu.name}
+            onChange={(e) => setEditingMenu({...editingMenu, name: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+            required
+          />
+        </div>
+        
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Deskripsi</label>
+          <textarea
+            value={editingMenu.description || ''}
+            onChange={(e) => setEditingMenu({...editingMenu, description: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none resize-none text-sm sm:text-base"
+            rows={3}
+          />
+        </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-xs sm:text-sm text-slate-400 mb-2">Harga (Rp)</label>
-                  <input
-                    type="number"
-                    value={editingMenu.price}
-                    onChange={(e) => setEditingMenu({...editingMenu, price: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs sm:text-sm text-slate-400 mb-2">Stok</label>
-                  <input
-                    type="number"
-                    value={editingMenu.stock}
-                    onChange={(e) => setEditingMenu({...editingMenu, stock: e.target.value})}
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                    min="0"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">Kategori</label>
-                <select
-                  value={editingMenu.category}
-                  onChange={(e) => setEditingMenu({...editingMenu, category: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                >
-                  <option value="food">🍰 Makanan</option>
-                  <option value="drink">🥤 Minuman</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs sm:text-sm text-slate-400 mb-2">URL Gambar (opsional)</label>
-                <input
-                  type="url"
-                  value={editingMenu.image || ''}
-                  onChange={(e) => setEditingMenu({...editingMenu, image: e.target.value})}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
-                />
-              </div>
-
-              <div className="flex space-x-2 sm:space-x-3 pt-2 sm:pt-4">
-                <button type="submit" className="flex-1 py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-500 rounded-lg sm:rounded-xl font-bold transition-all text-sm sm:text-base">
-                  Update
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setShowEditMenu(false);
-                    setEditingMenu(null);
-                  }} 
-                  className="flex-1 py-2.5 sm:py-3 bg-slate-700 hover:bg-slate-600 rounded-lg sm:rounded-xl transition-all text-sm sm:text-base"
-                >
-                  Batal
-                </button>
-              </div>
-            </form>
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <div>
+            <label className="block text-xs sm:text-sm text-slate-400 mb-2">Harga (Rp)</label>
+            <input
+              type="number"
+              value={editingMenu.price}
+              onChange={(e) => setEditingMenu({...editingMenu, price: e.target.value})}
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs sm:text-sm text-slate-400 mb-2">Stok</label>
+            <input
+              type="number"
+              value={editingMenu.stock}
+              onChange={(e) => setEditingMenu({...editingMenu, stock: e.target.value})}
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+              min="0"
+            />
           </div>
         </div>
-      )}
+
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Kategori</label>
+          <select
+            value={editingMenu.category}
+            onChange={(e) => setEditingMenu({...editingMenu, category: e.target.value})}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl text-white focus:border-indigo-500 outline-none text-sm sm:text-base"
+          >
+            <option value="food">🍰 Makanan</option>
+            <option value="drink">🥤 Minuman</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs sm:text-sm text-slate-400 mb-2">Gambar (Opsional)</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => handleMenuImageUpload(e, 'edit')}
+            className="hidden"
+            id="menu-image-edit"
+          />
+          
+          {editingMenu.image ? (
+            <div className="space-y-3">
+              <div className="relative w-full h-40 sm:h-48 bg-slate-900 rounded-xl overflow-hidden">
+                <img 
+                  src={editingMenu.image} 
+                  alt="Preview" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="flex space-x-2 sm:space-x-3">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('menu-image-edit')?.click()}
+                  className="flex-1 py-2.5 sm:py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg sm:rounded-xl font-medium transition-all text-sm sm:text-base"
+                >
+                  🔄 Ganti Gambar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingMenu({...editingMenu, image: ''})}
+                  className="flex-1 py-2.5 sm:py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg sm:rounded-xl font-medium transition-all text-sm sm:text-base"
+                >
+                  🗑️ Hapus
+                </button>
+              </div>
+            </div>
+          ) : (
+            <label 
+              htmlFor="menu-image-edit"
+              className="w-full py-6 sm:py-8 border-2 border-dashed border-slate-600 hover:border-indigo-500 rounded-xl text-slate-400 hover:text-indigo-400 transition-all flex flex-col items-center space-y-2 cursor-pointer"
+            >
+              <span className="text-2xl sm:text-3xl">📷</span>
+              <span className="text-sm sm:text-base">Klik untuk upload gambar</span>
+              <span className="text-xs text-slate-500">Maksimal 2MB</span>
+            </label>
+          )}
+        </div>
+
+        <div className="flex space-x-2 sm:space-x-3 pt-2 sm:pt-4">
+          <button type="submit" className="flex-1 py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-500 rounded-lg sm:rounded-xl font-bold transition-all text-sm sm:text-base">
+            Update
+          </button>
+          <button 
+            type="button" 
+            onClick={() => {
+              setShowEditMenu(false);
+              setEditingMenu(null);
+            }} 
+            className="flex-1 py-2.5 sm:py-3 bg-slate-700 hover:bg-slate-600 rounded-lg sm:rounded-xl transition-all text-sm sm:text-base"
+          >
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
 
       {showEditOrder && editingOrder && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
