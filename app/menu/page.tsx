@@ -133,7 +133,7 @@ export default function MenuPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/10 via-transparent to-fuchsia-500/10" />
         <div className="relative z-10 text-center">
           <div className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4 shadow-lg shadow-cyan-500/50" />
-          <p className="text-cyan-400 font-mono animate-pulse">LOADING_MENU...</p>
+          <p className="text-cyan-400 font-mono animate-pulse">LOADING MENU...</p>
         </div>
       </div>
     );
@@ -197,17 +197,17 @@ export default function MenuPage() {
           <div className="text-center mb-10">
             <div className="inline-flex items-center space-x-2 bg-cyan-500/10 backdrop-blur-sm border border-cyan-400/30 rounded-full px-4 py-2 mb-4">
               <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50" />
-              <span className="text-cyan-400 font-mono text-sm tracking-wider">MENU_DATABASE_LOADED</span>
+              <span className="text-cyan-400 font-mono text-sm tracking-wider">MENU DATABASE_LOADED</span>
             </div>
             <h1 className="text-4xl md:text-5xl font-black text-white mb-4 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">
-              DIGITAL<span className="text-cyan-400">_</span>MENU
+              DIGITAL<span className="text-cyan-400"></span>MENU
             </h1>
             <p className="text-slate-400 text-lg font-mono">Select items to initialize order protocol</p>
           </div>
 
           <div className="flex justify-center space-x-3 mb-10">
             {[
-              { key: 'all', label: 'ALL_ITEMS', icon: '🌐' },
+              { key: 'all', label: 'ALL ITEMS', icon: '🌐' },
               { key: 'food', label: 'FOOD', icon: '🍰' },
               { key: 'drink', label: 'DRINK', icon: '🥤' }
             ].map((cat) => (

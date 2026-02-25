@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import FloatingLeaves from '@/components/FloatingLeaves';
@@ -23,6 +23,13 @@ export default function DaftarContent() {
   const [successMessage, setSuccessMessage] = useState('');
   const [step, setStep] = useState<'email' | 'otp' | 'profile'>('email');
   const [countdown, setCountdown] = useState(60);
+  const [isEmailFocused, setIsEmailFocused] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
+  const [isNameFocused, setIsNameFocused] = useState(false);
+  const [characterMood, setCharacterMood] = useState<'normal' | 'cover' | 'peek' | 'happy' | 'typing'>('normal');
 
   useEffect(() => {
     if (step === 'otp' && countdown > 0) {
@@ -31,11 +38,59 @@ export default function DaftarContent() {
     }
   }, [countdown, step]);
 
+  useEffect(() => {
+    if (email.length > 0 && isEmailFocused) {
+      setCharacterMood('typing');
+    } else if (!isEmailFocused && email.length > 0) {
+      setCharacterMood('normal');
+    }
+  }, [email, isEmailFocused]);
+
+  const getCharacterEmoji = () => {
+    switch (characterMood) {
+      case 'cover':
+        return '🙈';
+      case 'peek':
+        return '🙉';
+      case 'happy':
+        return '🙊';
+      case 'typing':
+        return '✍️';
+      default:
+        return '🐵';
+    }
+  };
+
+  const getCharacterAnimation = () => {
+    switch (characterMood) {
+      case 'cover':
+        return 'animate-bounce';
+      case 'peek':
+        return 'animate-pulse';
+      case 'happy':
+        return 'animate-bounce';
+      case 'typing':
+        return 'animate-pulse';
+      default:
+        return '';
+    }
+  };
+
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email.includes('@')) {
       setError('Email tidak valid');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password minimal 6 karakter');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Password tidak cocok');
       return;
     }
 
@@ -66,15 +121,19 @@ export default function DaftarContent() {
           setSuccessMessage('Kode OTP telah dikirim ke email Anda. Silakan cek inbox/spam.');
           setStep('otp');
           setCountdown(60);
+          setCharacterMood('happy');
         } else {
           setError('Gagal mengirim email: ' + emailResult.error);
+          setCharacterMood('normal');
         }
       } else {
         setError(result.error || 'Gagal mengirim OTP');
+        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Terjadi kesalahan. Coba lagi.');
       console.error('Send OTP Error:', err);
+      setCharacterMood('normal');
     }
     
     setLoading(false);
@@ -135,6 +194,7 @@ export default function DaftarContent() {
       
       setStep('profile');
       setSuccessMessage('Email terverifikasi! Lengkapi profil Anda.');
+      setCharacterMood('happy');
     } catch (err: any) {
       setError('Terjadi kesalahan saat verifikasi');
       console.error(err);
@@ -164,11 +224,14 @@ export default function DaftarContent() {
           setSuccessMessage('Kode OTP baru telah dikirim!');
           setCountdown(60);
           setOtp(['', '', '', '', '', '']);
+          setCharacterMood('happy');
         } else {
           setError('Gagal mengirim ulang: ' + emailResult.error);
+          setCharacterMood('normal');
         }
       } else {
         setError(result.error || 'Gagal mengirim ulang OTP');
+        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Terjadi kesalahan saat mengirim ulang.');
@@ -192,6 +255,7 @@ export default function DaftarContent() {
       const result = await saveUserToFirestoreSafe(email, {
         email: email,
         name: name.trim(),
+        password: password,
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         role: 'user'
@@ -209,9 +273,11 @@ export default function DaftarContent() {
         router.push('/?registered=success');
       } else {
         setError(result.error || 'Gagal menyimpan data');
+        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Gagal menyimpan data: ' + err.message);
+      setCharacterMood('normal');
     }
     
     setLoading(false);
@@ -245,19 +311,29 @@ export default function DaftarContent() {
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 border border-white/20 shadow-2xl">
           
-          <div className="text-center mb-8">
-            <Link href="/" className="inline-flex items-center space-x-2 mb-6 group">
-              <span className="text-4xl group-hover:animate-bounce">🍵</span>
+          <div className="text-center mb-6">
+            <div className="relative inline-block mb-4">
+              <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center text-6xl shadow-lg">
+                <span className={`${getCharacterAnimation()} transition-all duration-300`}>
+                  {getCharacterEmoji()}
+                </span>
+              </div>
+              <div className="absolute -bottom-2 -right-2 bg-yellow-400 text-yellow-900 rounded-full w-8 h-8 flex items-center justify-center text-lg animate-bounce">
+                🍵
+              </div>
+            </div>
+            
+            <Link href="/" className="inline-flex items-center space-x-2 mb-2 group">
               <span className="text-2xl font-bold text-white">NeedTea</span>
             </Link>
             
-            <h1 className="text-3xl font-bold text-white mb-2">
+            <h1 className="text-2xl font-bold text-white mb-2">
               {step === 'email' && 'Daftar Akun'}
               {step === 'otp' && 'Verifikasi OTP'}
               {step === 'profile' && 'Lengkapi Profil'}
             </h1>
-            <p className="text-white/80">
-              {step === 'email' && 'Masukkan email Anda'}
+            <p className="text-white/80 text-sm">
+              {step === 'email' && 'Masukkan data Anda dengan aman'}
               {step === 'otp' && `Masukkan 6 digit kode yang dikirim ke ${email}`}
               {step === 'profile' && 'Beritahu kami nama Anda'}
             </p>
@@ -283,19 +359,118 @@ export default function DaftarContent() {
           )}
 
           {step === 'email' && (
-            <form onSubmit={handleSendOTP} className="space-y-6">
+            <form onSubmit={handleSendOTP} className="space-y-5">
               <div>
                 <label className="block text-white text-sm font-medium mb-2">
                   Alamat Email
                 </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="nama@email.com"
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onFocus={() => {
+                      setIsEmailFocused(true);
+                      setCharacterMood('typing');
+                    }}
+                    onBlur={() => {
+                      setIsEmailFocused(false);
+                      if (email.length === 0) setCharacterMood('normal');
+                    }}
+                    placeholder="nama@email.com"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-10"
+                    required
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
+                    📧
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={isPasswordVisible ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onFocus={() => setCharacterMood('cover')}
+                    onBlur={() => {
+                      if (email.length === 0) setCharacterMood('normal');
+                      else setCharacterMood('typing');
+                    }}
+                    placeholder="Minimal 6 karakter"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-12"
+                    required
+                    minLength={6}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPasswordVisible(!isPasswordVisible);
+                      setCharacterMood(isPasswordVisible ? 'cover' : 'peek');
+                      setTimeout(() => setCharacterMood('cover'), 500);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  >
+                    {isPasswordVisible ? '🙈' : '🙉'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Konfirmasi Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={isConfirmPasswordVisible ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onFocus={() => setCharacterMood('cover')}
+                    onBlur={() => {
+                      if (email.length === 0) setCharacterMood('normal');
+                      else setCharacterMood('typing');
+                    }}
+                    placeholder="Ulangi password"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-12"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsConfirmPasswordVisible(!isConfirmPasswordVisible);
+                      setCharacterMood(isConfirmPasswordVisible ? 'cover' : 'peek');
+                      setTimeout(() => setCharacterMood('cover'), 500);
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                  >
+                    {isConfirmPasswordVisible ? '🙈' : '🙉'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white text-sm font-medium mb-2">
+                  Nama Lengkap
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onFocus={() => setIsNameFocused(true)}
+                    onBlur={() => setIsNameFocused(false)}
+                    placeholder="Masukkan nama Anda"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-10"
+                    required
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
+                    👤
+                  </span>
+                </div>
               </div>
 
               <button
@@ -372,6 +547,7 @@ export default function DaftarContent() {
                       setOtp(['', '', '', '', '', '']);
                       setError('');
                       setSuccessMessage('');
+                      setCharacterMood('normal');
                     }}
                     className="text-white/60 hover:text-white text-sm"
                   >
