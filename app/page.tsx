@@ -1,16 +1,14 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/hooks/useAuth';
-import { logoutUser, subscribeToMenuItems, db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
+import { logoutUser, getMenuItems, subscribeToMenuItems } from '@/lib/firebase';
 
 interface FeaturedItem {
   id: string;
   name: string;
-  description: string;
   price: number;
   image?: string;
   category: string;
@@ -22,7 +20,7 @@ export default function Home() {
   const { userData, isAdmin, loading } = useAuth();
   const [featuredItems, setFeaturedItems] = useState<FeaturedItem[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
     if (!loading && isAdmin) {
@@ -31,95 +29,46 @@ export default function Home() {
   }, [loading, isAdmin, router]);
 
   useEffect(() => {
-    loadFeaturedItems();
+    const unsubscribe = subscribeToMenuItems((items) => {
+      const sortedItems = [...items]
+        .sort((a, b) => (b.orderCount || 0) - (a.orderCount || 0))
+        .slice(0, 3)
+        .map(item => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          image: item.image,
+          category: item.category,
+          orderCount: item.orderCount || 0
+        }));
+      setFeaturedItems(sortedItems);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!isAutoPlaying || featuredItems.length === 0) return;
-    
-    const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % featuredItems.length);
-    }, 4000);
-
-    return () => clearInterval(interval);
-  }, [isAutoPlaying, featuredItems.length]);
-
-  const loadFeaturedItems = async () => {
-    try {
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('status', '==', 'completed'),
-        orderBy('completedAt', 'desc')
-      );
-      const ordersSnapshot = await getDocs(ordersQuery);
-      
-      const itemCounts: { [key: string]: { count: number; item: any } } = {};
-      
-      ordersSnapshot.docs.forEach(doc => {
-        const order = doc.data();
-        order.items?.forEach((item: any) => {
-          if (!itemCounts[item.menuId]) {
-            itemCounts[item.menuId] = { count: 0, item };
-          }
-          itemCounts[item.menuId].count += item.quantity;
-        });
-      });
-
-      const sortedItems = Object.entries(itemCounts)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 3)
-        .map(([id, data]) => ({
-          id,
-          name: data.item.name,
-          description: data.item.description || 'Premium cyber tea blend',
-          price: data.item.price,
-          image: data.item.image,
-          category: data.item.category,
-          orderCount: data.count
-        }));
-
-      if (sortedItems.length < 3) {
-        const menuQuery = query(collection(db, 'menuItems'), orderBy('createdAt', 'desc'), limit(3));
-        const menuSnapshot = await getDocs(menuQuery);
-        const menuItems = menuSnapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().name,
-          description: doc.data().description || 'Premium cyber tea blend',
-          price: doc.data().price,
-          image: doc.data().image,
-          category: doc.data().category,
-          orderCount: 0
-        }));
-
-        const existingIds = new Set(sortedItems.map(i => i.id));
-        const additionalItems = menuItems.filter(item => !existingIds.has(item.id));
-        setFeaturedItems([...sortedItems, ...additionalItems].slice(0, 3));
-      } else {
-        setFeaturedItems(sortedItems);
-      }
-    } catch (error) {
-      console.error('Error loading featured items:', error);
-      const menuQuery = query(collection(db, 'menuItems'), orderBy('createdAt', 'desc'), limit(3));
-      const menuSnapshot = await getDocs(menuQuery);
-      setFeaturedItems(menuSnapshot.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name,
-        description: doc.data().description || 'Premium cyber tea blend',
-        price: doc.data().price,
-        image: doc.data().image,
-        category: doc.data().category,
-        orderCount: 0
-      })));
+    if (featuredItems.length > 1) {
+      const interval = setInterval(() => {
+        handleNextSlide();
+      }, 5000);
+      return () => clearInterval(interval);
     }
+  }, [featuredItems, currentSlide]);
+
+  const handleNextSlide = () => {
+    if (isAnimating) return;
+    setIsAnimating(true);
+    setCurrentSlide((prev) => (prev + 1) % featuredItems.length);
+    setTimeout(() => setIsAnimating(false), 600);
   };
 
-  const nextSlide = useCallback(() => {
-    setCurrentSlide((prev) => (prev + 1) % featuredItems.length);
-  }, [featuredItems.length]);
-
-  const prevSlide = useCallback(() => {
+  const handlePrevSlide = () => {
+    if (isAnimating) return;
+    setIsAnimating(true);
     setCurrentSlide((prev) => (prev - 1 + featuredItems.length) % featuredItems.length);
-  }, [featuredItems.length]);
+    setTimeout(() => setIsAnimating(false), 600);
+  };
 
   const handleLogout = async () => {
     if (confirm('Logout dari sistem?')) {
@@ -142,6 +91,18 @@ export default function Home() {
   }
 
   if (isAdmin) return null;
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Selamat Pagi';
+    if (hour < 15) return 'Selamat Siang';
+    if (hour < 18) return 'Selamat Sore';
+    return 'Selamat Malam';
+  };
+
+  const getFirstName = (fullName: string) => {
+    return fullName.split(' ')[0];
+  };
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 relative overflow-hidden">
@@ -177,7 +138,9 @@ export default function Home() {
           <div>
             {userData ? (
               <div className="flex items-center space-x-3">
-                <span className="text-emerald-400 font-mono text-sm">Halo, {userData.name}</span>
+                <span className="text-emerald-400 font-mono text-sm">
+                  {getGreeting()}, {getFirstName(userData.name || userData.email.split('@')[0])}
+                </span>
                 <button 
                   onClick={handleLogout}
                   className="px-4 py-2 bg-rose-500/20 border border-rose-400 text-rose-400 rounded-lg font-mono text-sm hover:bg-rose-500/30 transition-all"
@@ -274,101 +237,91 @@ export default function Home() {
           <div className="relative">
             <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 rounded-full blur-3xl animate-pulse" />
             
-            <div 
-              className="relative z-10 bg-slate-900/50 backdrop-blur-xl rounded-3xl p-8 border border-cyan-500/30 shadow-2xl shadow-cyan-500/10"
-              onMouseEnter={() => setIsAutoPlaying(false)}
-              onMouseLeave={() => setIsAutoPlaying(true)}
-            >
+            <div className="relative z-10 bg-slate-900/50 backdrop-blur-xl rounded-3xl p-8 border border-cyan-500/30 shadow-2xl shadow-cyan-500/10 overflow-hidden">
               {featuredItems.length > 0 ? (
-                <div className="relative overflow-hidden">
-                  <div 
-                    className="flex transition-transform duration-500 ease-out"
-                    style={{ transform: `translateX(-${currentSlide * 100}%)` }}
-                  >
-                    {featuredItems.map((item, index) => (
-                      <div key={item.id} className="w-full flex-shrink-0">
-                        <div className="text-center">
-                          <div className="relative mb-6">
-                            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/30 to-fuchsia-500/30 rounded-2xl blur-xl animate-pulse" />
-                            <div className="relative w-48 h-48 mx-auto bg-slate-800 rounded-2xl overflow-hidden border border-slate-700">
-                              {item.image ? (
-                                <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-6xl bg-slate-800">
-                                  {item.category === 'food' ? '🍰' : '🥤'}
-                                </div>
-                              )}
+                <div className="relative h-80">
+                  {featuredItems.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className={`absolute inset-0 transition-all duration-600 ease-in-out transform ${
+                        index === currentSlide 
+                          ? 'opacity-100 translate-x-0 scale-100' 
+                          : index < currentSlide 
+                            ? 'opacity-0 -translate-x-full scale-95' 
+                            : 'opacity-0 translate-x-full scale-95'
+                      }`}
+                    >
+                      <div className="text-center h-full flex flex-col justify-center">
+                        <div className="relative w-48 h-48 mx-auto mb-4">
+                          {item.image ? (
+                            <img 
+                              src={item.image} 
+                              alt={item.name} 
+                              className="w-full h-full object-cover rounded-2xl shadow-2xl shadow-cyan-500/30"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-slate-800 rounded-2xl flex items-center justify-center text-6xl border border-cyan-500/30">
+                              {item.category === 'food' ? '🍰' : '🥤'}
                             </div>
-                            {item.orderCount > 0 && (
-                              <div className="absolute -top-2 -right-2 bg-gradient-to-r from-yellow-400 to-orange-400 text-slate-950 rounded-full px-3 py-1 text-xs font-bold animate-bounce">
-                                TOP {index + 1}
-                              </div>
-                            )}
+                          )}
+                          <div className="absolute -top-2 -right-2 bg-gradient-to-r from-cyan-400 to-fuchsia-400 text-slate-950 text-xs font-bold px-3 py-1 rounded-full">
+                            TOP {index + 1}
                           </div>
-                          
-                          <h3 className="text-2xl font-bold text-white mb-2 font-mono">{item.name.toUpperCase()}</h3>
-                          <p className="text-cyan-400 mb-2 font-mono text-sm">{item.category === 'food' ? 'CYBER_SNACK' : 'CYBER_TEA'}</p>
-                          <p className="text-slate-400 text-sm mb-4 line-clamp-2 px-4">{item.description}</p>
-                          
-                          <div className="flex items-center justify-center space-x-4 mb-4">
-                            <span className="text-2xl font-bold text-fuchsia-400 font-mono">
-                              Rp {item.price.toLocaleString()}
-                            </span>
-                            {item.orderCount > 0 && (
-                              <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/30">
-                                {item.orderCount}x ordered
-                              </span>
-                            )}
-                          </div>
-                          
-                          <div className="flex justify-center space-x-1 mb-6">
-                            {[1,2,3,4,5].map((star) => (
-                              <svg key={star} className="w-5 h-5 text-yellow-400 fill-current drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]" viewBox="0 0 20 20">
-                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                              </svg>
-                            ))}
-                          </div>
-
-                          <Link href="/menu">
-                            <button className="w-full py-3 bg-gradient-to-r from-cyan-500 to-fuchsia-500 hover:from-cyan-400 hover:to-fuchsia-400 text-slate-950 rounded-xl font-bold transition-all">
-                              ORDER_NOW
-                            </button>
-                          </Link>
+                        </div>
+                        <h3 className="text-2xl font-bold text-white mb-2 font-mono">{item.name}</h3>
+                        <p className="text-cyan-400 mb-2 font-mono text-sm">Rp {item.price?.toLocaleString()}</p>
+                        <p className="text-slate-500 text-xs font-mono">{item.orderCount} orders</p>
+                        <div className="flex justify-center space-x-1 mt-4">
+                          {[1,2,3,4,5].map((star) => (
+                            <svg key={star} className="w-5 h-5 text-yellow-400 fill-current drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]" viewBox="0 0 20 20">
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                   
-                  <div className="flex justify-center space-x-2 mt-6">
+                  {featuredItems.length > 1 && (
+                    <>
+                      <button
+                        onClick={handlePrevSlide}
+                        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-slate-800/80 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-full flex items-center justify-center text-cyan-400 transition-all"
+                      >
+                        ←
+                      </button>
+                      <button
+                        onClick={handleNextSlide}
+                        className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-slate-800/80 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-full flex items-center justify-center text-cyan-400 transition-all"
+                      >
+                        →
+                      </button>
+                    </>
+                  )}
+                  
+                  <div className="absolute bottom-0 left-0 right-0 flex justify-center space-x-2 pb-2">
                     {featuredItems.map((_, index) => (
                       <button
                         key={index}
-                        onClick={() => setCurrentSlide(index)}
+                        onClick={() => {
+                          if (!isAnimating) {
+                            setIsAnimating(true);
+                            setCurrentSlide(index);
+                            setTimeout(() => setIsAnimating(false), 600);
+                          }
+                        }}
                         className={`w-2 h-2 rounded-full transition-all ${
-                          currentSlide === index 
-                            ? 'w-8 bg-cyan-400' 
+                          index === currentSlide 
+                            ? 'bg-cyan-400 w-6' 
                             : 'bg-slate-600 hover:bg-slate-500'
                         }`}
                       />
                     ))}
                   </div>
-
-                  <button
-                    onClick={prevSlide}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-4 w-10 h-10 bg-slate-800/80 border border-cyan-500/30 rounded-full flex items-center justify-center text-cyan-400 hover:bg-cyan-500/20 transition-all"
-                  >
-                    ←
-                  </button>
-                  <button
-                    onClick={nextSlide}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-4 w-10 h-10 bg-slate-800/80 border border-cyan-500/30 rounded-full flex items-center justify-center text-cyan-400 hover:bg-cyan-500/20 transition-all"
-                  >
-                    →
-                  </button>
                 </div>
               ) : (
-                <div className="text-center py-12">
-                  <div className="text-6xl mb-4 animate-bounce">🍵</div>
+                <div className="text-center h-80 flex flex-col justify-center">
+                  <div className="text-9xl mb-4 filter drop-shadow-[0_0_30px_rgba(34,211,238,0.5)] animate-bounce">🍵</div>
                   <h3 className="text-2xl font-bold text-white mb-2 font-mono">NEON_MATCHA</h3>
                   <p className="text-cyan-400 mb-4 font-mono text-sm">Premium Cyber Tea</p>
                   <div className="flex justify-center space-x-1">

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import FloatingLeaves from '@/components/FloatingLeaves';
 import { 
   saveOTPToUser, 
   checkUserExists, 
@@ -23,13 +22,9 @@ export default function DaftarContent() {
   const [successMessage, setSuccessMessage] = useState('');
   const [step, setStep] = useState<'email' | 'otp' | 'profile'>('email');
   const [countdown, setCountdown] = useState(60);
-  const [isEmailFocused, setIsEmailFocused] = useState(false);
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
-  const [isNameFocused, setIsNameFocused] = useState(false);
-  const [characterMood, setCharacterMood] = useState<'normal' | 'cover' | 'peek' | 'happy' | 'typing'>('normal');
+  const [showEmail, setShowEmail] = useState(false);
+  const [isPeeking, setIsPeeking] = useState(false);
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (step === 'otp' && countdown > 0) {
@@ -38,59 +33,11 @@ export default function DaftarContent() {
     }
   }, [countdown, step]);
 
-  useEffect(() => {
-    if (email.length > 0 && isEmailFocused) {
-      setCharacterMood('typing');
-    } else if (!isEmailFocused && email.length > 0) {
-      setCharacterMood('normal');
-    }
-  }, [email, isEmailFocused]);
-
-  const getCharacterEmoji = () => {
-    switch (characterMood) {
-      case 'cover':
-        return '🙈';
-      case 'peek':
-        return '🙉';
-      case 'happy':
-        return '🙊';
-      case 'typing':
-        return '✍️';
-      default:
-        return '🐵';
-    }
-  };
-
-  const getCharacterAnimation = () => {
-    switch (characterMood) {
-      case 'cover':
-        return 'animate-bounce';
-      case 'peek':
-        return 'animate-pulse';
-      case 'happy':
-        return 'animate-bounce';
-      case 'typing':
-        return 'animate-pulse';
-      default:
-        return '';
-    }
-  };
-
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!email.includes('@')) {
       setError('Email tidak valid');
-      return;
-    }
-
-    if (password.length < 6) {
-      setError('Password minimal 6 karakter');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Password tidak cocok');
       return;
     }
 
@@ -121,19 +68,15 @@ export default function DaftarContent() {
           setSuccessMessage('Kode OTP telah dikirim ke email Anda. Silakan cek inbox/spam.');
           setStep('otp');
           setCountdown(60);
-          setCharacterMood('happy');
         } else {
           setError('Gagal mengirim email: ' + emailResult.error);
-          setCharacterMood('normal');
         }
       } else {
         setError(result.error || 'Gagal mengirim OTP');
-        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Terjadi kesalahan. Coba lagi.');
       console.error('Send OTP Error:', err);
-      setCharacterMood('normal');
     }
     
     setLoading(false);
@@ -194,7 +137,6 @@ export default function DaftarContent() {
       
       setStep('profile');
       setSuccessMessage('Email terverifikasi! Lengkapi profil Anda.');
-      setCharacterMood('happy');
     } catch (err: any) {
       setError('Terjadi kesalahan saat verifikasi');
       console.error(err);
@@ -224,14 +166,11 @@ export default function DaftarContent() {
           setSuccessMessage('Kode OTP baru telah dikirim!');
           setCountdown(60);
           setOtp(['', '', '', '', '', '']);
-          setCharacterMood('happy');
         } else {
           setError('Gagal mengirim ulang: ' + emailResult.error);
-          setCharacterMood('normal');
         }
       } else {
         setError(result.error || 'Gagal mengirim ulang OTP');
-        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Terjadi kesalahan saat mengirim ulang.');
@@ -255,7 +194,6 @@ export default function DaftarContent() {
       const result = await saveUserToFirestoreSafe(email, {
         email: email,
         name: name.trim(),
-        password: password,
         createdAt: new Date().toISOString(),
         lastLogin: new Date().toISOString(),
         role: 'user'
@@ -273,11 +211,9 @@ export default function DaftarContent() {
         router.push('/?registered=success');
       } else {
         setError(result.error || 'Gagal menyimpan data');
-        setCharacterMood('normal');
       }
     } catch (err: any) {
       setError('Gagal menyimpan data: ' + err.message);
-      setCharacterMood('normal');
     }
     
     setLoading(false);
@@ -303,48 +239,67 @@ export default function DaftarContent() {
     }
   };
 
+  const toggleEmailVisibility = () => {
+    setShowEmail(!showEmail);
+    setIsPeeking(true);
+    setTimeout(() => setIsPeeking(false), 300);
+  };
+
+  const getPeekingMascot = () => {
+    if (isPeeking) {
+      return (
+        <div className="text-4xl animate-bounce">
+          👀
+        </div>
+      );
+    }
+    if (showEmail) {
+      return (
+        <div className="text-4xl">
+          😮
+        </div>
+      );
+    }
+    return (
+      <div className="text-4xl">
+        🙈
+      </div>
+    );
+  };
+
   return (
-    <main className="min-h-screen relative overflow-hidden flex items-center justify-center">
-      <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
-      <FloatingLeaves />
+    <main className="min-h-screen relative overflow-hidden flex items-center justify-center bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700 p-4">
+      <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-10"></div>
+      </div>
       
-      <div className="relative z-10 w-full max-w-md px-4">
-        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-8 border border-white/20 shadow-2xl">
+      <div className="relative z-10 w-full max-w-md">
+        <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-6 sm:p-8 border border-white/20 shadow-2xl">
           
-          <div className="text-center mb-6">
-            <div className="relative inline-block mb-4">
-              <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center text-6xl shadow-lg">
-                <span className={`${getCharacterAnimation()} transition-all duration-300`}>
-                  {getCharacterEmoji()}
-                </span>
-              </div>
-              <div className="absolute -bottom-2 -right-2 bg-yellow-400 text-yellow-900 rounded-full w-8 h-8 flex items-center justify-center text-lg animate-bounce">
-                🍵
-              </div>
-            </div>
-            
-            <Link href="/" className="inline-flex items-center space-x-2 mb-2 group">
-              <span className="text-2xl font-bold text-white">NeedTea</span>
+          <div className="text-center mb-6 sm:mb-8">
+            <Link href="/" className="inline-flex items-center space-x-2 mb-4 sm:mb-6 group">
+              <span className="text-3xl sm:text-4xl group-hover:animate-bounce">🍵</span>
+              <span className="text-xl sm:text-2xl font-bold text-white">NeedTea</span>
             </Link>
             
-            <h1 className="text-2xl font-bold text-white mb-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
               {step === 'email' && 'Daftar Akun'}
               {step === 'otp' && 'Verifikasi OTP'}
               {step === 'profile' && 'Lengkapi Profil'}
             </h1>
-            <p className="text-white/80 text-sm">
-              {step === 'email' && 'Masukkan data Anda dengan aman'}
+            <p className="text-white/80 text-sm sm:text-base px-2">
+              {step === 'email' && 'Masukkan email dan nama Anda'}
               {step === 'otp' && `Masukkan 6 digit kode yang dikirim ke ${email}`}
               {step === 'profile' && 'Beritahu kami nama Anda'}
             </p>
           </div>
 
           {error && (
-            <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-4 mb-6 text-center">
-              <p className="text-red-100 text-sm">{error}</p>
+            <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 text-center">
+              <p className="text-red-100 text-xs sm:text-sm">{error}</p>
               {error.includes('sudah terdaftar') && (
                 <Link href="/login">
-                  <button className="mt-3 px-4 py-2 bg-white text-red-600 rounded-lg font-medium text-sm hover:bg-red-50 transition-all">
+                  <button className="mt-3 px-4 py-2 bg-white text-red-600 rounded-lg font-medium text-xs sm:text-sm hover:bg-red-50 transition-all">
                     Login Sekarang
                   </button>
                 </Link>
@@ -353,136 +308,82 @@ export default function DaftarContent() {
           )}
 
           {successMessage && (
-            <div className="bg-green-500/20 border border-green-400/30 rounded-xl p-4 mb-6 text-center">
-              <p className="text-green-100 text-sm">{successMessage}</p>
+            <div className="bg-green-500/20 border border-green-400/30 rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 text-center">
+              <p className="text-green-100 text-xs sm:text-sm">{successMessage}</p>
             </div>
           )}
 
           {step === 'email' && (
-            <form onSubmit={handleSendOTP} className="space-y-5">
+            <form onSubmit={handleSendOTP} className="space-y-4 sm:space-y-6">
+              <div className="flex justify-center mb-4">
+                {getPeekingMascot()}
+              </div>
+              
               <div>
                 <label className="block text-white text-sm font-medium mb-2">
                   Alamat Email
                 </label>
                 <div className="relative">
                   <input
-                    type="email"
+                    ref={emailInputRef}
+                    type={showEmail ? "text" : "password"}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    onFocus={() => {
-                      setIsEmailFocused(true);
-                      setCharacterMood('typing');
-                    }}
-                    onBlur={() => {
-                      setIsEmailFocused(false);
-                      if (email.length === 0) setCharacterMood('normal');
-                    }}
                     placeholder="nama@email.com"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-10"
-                    required
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
-                    📧
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-white text-sm font-medium mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={isPasswordVisible ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onFocus={() => setCharacterMood('cover')}
-                    onBlur={() => {
-                      if (email.length === 0) setCharacterMood('normal');
-                      else setCharacterMood('typing');
-                    }}
-                    placeholder="Minimal 6 karakter"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-12"
-                    required
-                    minLength={6}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPasswordVisible(!isPasswordVisible);
-                      setCharacterMood(isPasswordVisible ? 'cover' : 'peek');
-                      setTimeout(() => setCharacterMood('cover'), 500);
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
-                  >
-                    {isPasswordVisible ? '🙈' : '🙉'}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-white text-sm font-medium mb-2">
-                  Konfirmasi Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={isConfirmPasswordVisible ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    onFocus={() => setCharacterMood('cover')}
-                    onBlur={() => {
-                      if (email.length === 0) setCharacterMood('normal');
-                      else setCharacterMood('typing');
-                    }}
-                    placeholder="Ulangi password"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-12"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-12 text-sm sm:text-base"
                     required
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsConfirmPasswordVisible(!isConfirmPasswordVisible);
-                      setCharacterMood(isConfirmPasswordVisible ? 'cover' : 'peek');
-                      setTimeout(() => setCharacterMood('cover'), 500);
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors"
+                    onClick={toggleEmailVisibility}
+                    onMouseDown={() => setIsPeeking(true)}
+                    onMouseUp={() => setIsPeeking(false)}
+                    onMouseLeave={() => setIsPeeking(false)}
+                    onTouchStart={() => setIsPeeking(true)}
+                    onTouchEnd={() => setIsPeeking(false)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-all p-2"
                   >
-                    {isConfirmPasswordVisible ? '🙈' : '🙉'}
+                    {showEmail ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
                   </button>
                 </div>
+                <p className="text-white/60 text-xs mt-2 text-center">
+                  Klik icon mata untuk melihat email
+                </p>
               </div>
 
               <div>
                 <label className="block text-white text-sm font-medium mb-2">
                   Nama Lengkap
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    onFocus={() => setIsNameFocused(true)}
-                    onBlur={() => setIsNameFocused(false)}
-                    placeholder="Masukkan nama Anda"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 pr-10"
-                    required
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
-                    👤
-                  </span>
-                </div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Masukkan nama Anda"
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 text-sm sm:text-base"
+                  required
+                />
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading || !email || !name}
+                className="w-full py-3 sm:py-4 bg-white text-tea-600 rounded-xl font-bold text-base sm:text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Mengirim...' : 'Kirim Kode OTP'}
               </button>
 
               <div className="text-center">
-                <p className="text-white/60 text-sm">
+                <p className="text-white/60 text-xs sm:text-sm">
                   Sudah punya akun?{' '}
                   <Link href="/login" className="text-white font-semibold underline hover:text-yellow-300">
                     Masuk di sini
@@ -493,12 +394,12 @@ export default function DaftarContent() {
           )}
 
           {step === 'otp' && (
-            <form onSubmit={handleVerifyOTP} className="space-y-6">
+            <form onSubmit={handleVerifyOTP} className="space-y-4 sm:space-y-6">
               <div>
                 <label className="block text-white text-sm font-medium mb-4 text-center">
                   Kode OTP 6 Digit
                 </label>
-                <div className="flex justify-center space-x-3">
+                <div className="flex justify-center space-x-2 sm:space-x-3">
                   {otp.map((digit, index) => (
                     <input
                       key={index}
@@ -509,7 +410,7 @@ export default function DaftarContent() {
                       value={digit}
                       onChange={(e) => handleOtpChange(index, e.target.value)}
                       onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                      className="w-12 h-14 bg-white/10 border border-white/20 rounded-xl text-white text-center text-2xl font-bold focus:outline-none focus:border-white/50 focus:bg-white/20"
+                      className="w-10 h-12 sm:w-12 sm:h-14 bg-white/10 border border-white/20 rounded-xl text-white text-center text-xl sm:text-2xl font-bold focus:outline-none focus:border-white/50 focus:bg-white/20"
                     />
                   ))}
                 </div>
@@ -518,14 +419,14 @@ export default function DaftarContent() {
               <button
                 type="submit"
                 disabled={loading || otp.join('').length !== 6}
-                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 sm:py-4 bg-white text-tea-600 rounded-xl font-bold text-base sm:text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Memverifikasi...' : 'Verifikasi'}
               </button>
 
               <div className="text-center space-y-3">
                 {countdown > 0 ? (
-                  <p className="text-white/60 text-sm">
+                  <p className="text-white/60 text-xs sm:text-sm">
                     Kirim ulang dalam {countdown} detik
                   </p>
                 ) : (
@@ -533,7 +434,7 @@ export default function DaftarContent() {
                     type="button"
                     onClick={handleResendOTP}
                     disabled={loading}
-                    className="text-white font-semibold text-sm underline hover:text-yellow-300"
+                    className="text-white font-semibold text-xs sm:text-sm underline hover:text-yellow-300"
                   >
                     Kirim Ulang Kode
                   </button>
@@ -547,9 +448,8 @@ export default function DaftarContent() {
                       setOtp(['', '', '', '', '', '']);
                       setError('');
                       setSuccessMessage('');
-                      setCharacterMood('normal');
                     }}
-                    className="text-white/60 hover:text-white text-sm"
+                    className="text-white/60 hover:text-white text-xs sm:text-sm"
                   >
                     Gunakan email lain
                   </button>
@@ -559,13 +459,13 @@ export default function DaftarContent() {
           )}
 
           {step === 'profile' && (
-            <form onSubmit={handleCompleteRegistration} className="space-y-6">
-              <div className="text-center mb-6">
-                <div className="w-20 h-20 bg-white/20 rounded-full mx-auto mb-4 flex items-center justify-center text-4xl">
+            <form onSubmit={handleCompleteRegistration} className="space-y-4 sm:space-y-6">
+              <div className="text-center mb-4 sm:mb-6">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white/20 rounded-full mx-auto mb-4 flex items-center justify-center text-3xl sm:text-4xl">
                   👤
                 </div>
-                <p className="text-white/80 text-sm">Email terverifikasi:</p>
-                <p className="text-white font-semibold break-all">{email}</p>
+                <p className="text-white/80 text-xs sm:text-sm">Email terverifikasi:</p>
+                <p className="text-white font-semibold break-all text-xs sm:text-sm">{email}</p>
               </div>
 
               <div>
@@ -577,7 +477,7 @@ export default function DaftarContent() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Masukkan nama Anda"
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50"
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:border-white/50 text-sm sm:text-base"
                   required
                 />
               </div>
@@ -585,16 +485,16 @@ export default function DaftarContent() {
               <button
                 type="submit"
                 disabled={loading || !name.trim()}
-                className="w-full py-4 bg-white text-tea-600 rounded-xl font-bold text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 sm:py-4 bg-white text-tea-600 rounded-xl font-bold text-base sm:text-lg shadow-lg hover:bg-yellow-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Menyimpan...' : 'Daftar & Simpan'}
               </button>
             </form>
           )}
 
-          <div className="mt-6 pt-6 border-t border-white/20">
+          <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/20">
             <Link href="/" className="block w-full">
-              <button className="w-full py-3 text-white/70 hover:text-white text-sm font-medium transition-all flex items-center justify-center space-x-2">
+              <button className="w-full py-2 sm:py-3 text-white/70 hover:text-white text-xs sm:text-sm font-medium transition-all flex items-center justify-center space-x-2">
                 <span>Kembali ke Beranda</span>
               </button>
             </Link>
