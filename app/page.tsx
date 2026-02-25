@@ -3,9 +3,6 @@
 import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Navbar from '@/components/Navbar';
-import FloatingLeaves from '@/components/FloatingLeaves';
-import TeaLeaf from '@/components/TeaLeaf';
 import useAuth from '@/hooks/useAuth';
 import { logoutUser } from '@/lib/firebase';
 
@@ -13,7 +10,6 @@ export default function Home() {
   const router = useRouter();
   const { userData, isAdmin, loading } = useAuth();
 
-  // Redirect otomatis ke admin jika sudah login sebagai admin
   useEffect(() => {
     if (!loading && isAdmin) {
       router.push('/admin');
@@ -21,167 +17,177 @@ export default function Home() {
   }, [loading, isAdmin, router]);
 
   const handleLogout = async () => {
-    if (confirm('Apakah Anda yakin ingin keluar?')) {
+    if (confirm('Logout dari sistem?')) {
       await logoutUser();
-      window.location.reload(); // Refresh halaman setelah logout
+      window.location.reload();
     }
   };
 
-  // Jika sedang loading atau adalah admin (akan di-redirect), tampilkan loading
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700">
-        <div className="text-white text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p>Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/10 via-transparent to-fuchsia-500/10" />
+        <div className="relative z-10 text-center">
+          <div className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4 shadow-lg shadow-cyan-500/50" />
+          <p className="text-cyan-400 font-mono animate-pulse">INITIALIZING...</p>
         </div>
       </div>
     );
   }
 
-  // Jika admin, tidak perlu render halaman ini (sudah di-redirect)
-  if (isAdmin) {
-    return null;
-  }
+  if (isAdmin) return null;
 
   return (
-    <main className="min-h-screen relative overflow-hidden">
-      {/* Background Gradasi */}
-      <div className="fixed inset-0 bg-gradient-to-br from-tea-400 via-tea-500 to-tea-700" />
+    <main className="min-h-screen bg-slate-950 text-slate-100 relative overflow-hidden">
+      <div className="fixed inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
       
-      {/* Pattern Overlay */}
-      <div className="fixed inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.4%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')]"/>
+      <div className="fixed inset-0 bg-gradient-to-b from-cyan-500/5 via-transparent to-fuchsia-500/5" />
       
-      <FloatingLeaves />
-      <Navbar />
+      <div className="fixed top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-50" />
+      <div className="fixed top-20 left-0 w-px h-40 bg-gradient-to-b from-cyan-400 to-transparent opacity-30 animate-pulse" />
+      <div className="fixed top-40 right-0 w-px h-60 bg-gradient-to-b from-fuchsia-400 to-transparent opacity-30 animate-pulse" />
       
-      {/* Hero Section */}
-      <section className="relative z-10 min-h-screen flex items-center justify-center px-4">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-cyan-500/20">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+          <Link href="/" className="flex items-center space-x-3">
+            <span className="text-3xl filter drop-shadow-[0_0_15px_rgba(34,211,238,0.8)]">🍵</span>
+            <span className="text-2xl font-black bg-gradient-to-r from-cyan-400 to-fuchsia-400 bg-clip-text text-transparent">
+              NeedTea
+            </span>
+          </Link>
+          
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/" className="text-cyan-400 font-mono text-sm border-b-2 border-cyan-400 pb-1">
+              BERANDA
+            </Link>
+            <Link href="/menu" className="text-slate-400 hover:text-cyan-400 transition-colors font-mono text-sm">
+              MENU
+            </Link>
+            <Link href="/cek-pesanan" className="text-slate-400 hover:text-cyan-400 transition-colors font-mono text-sm">
+              CEK_PESANAN
+            </Link>
+          </div>
+          
+          <div>
+            {userData ? (
+              <div className="flex items-center space-x-3">
+                <span className="text-emerald-400 font-mono text-sm">{userData.name}</span>
+                <button 
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-rose-500/20 border border-rose-400 text-rose-400 rounded-lg font-mono text-sm hover:bg-rose-500/30 transition-all"
+                >
+                  LOGOUT
+                </button>
+              </div>
+            ) : (
+              <Link href="/login">
+                <button className="px-6 py-2 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-lg font-mono text-sm hover:bg-cyan-500/30 transition-all shadow-lg shadow-cyan-500/20">
+                  LOGIN
+                </button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </nav>
+      
+      <section className="relative z-10 min-h-screen flex items-center justify-center px-4 pt-20">
         <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-12 items-center">
           
-          {/* Left Content */}
-          <div className="text-center md:text-left animate-fade-in-up">
-            <div className="inline-flex items-center space-x-2 bg-white/20 backdrop-blur-sm rounded-full px-4 py-2 mb-6">
-              <span className="flex h-2 w-2 rounded-full bg-green-300 animate-pulse" />
-              <span className="text-white text-sm font-medium">Fresh Diseduh Setiap Hari</span>
+          <div className="text-center md:text-left">
+            <div className="inline-flex items-center space-x-2 bg-cyan-500/10 backdrop-blur-sm border border-cyan-400/30 rounded-full px-4 py-2 mb-6">
+              <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50" />
+              <span className="text-cyan-400 font-mono text-sm tracking-wider">SYSTEM_ONLINE</span>
             </div>
             
-            <h1 className="text-5xl md:text-7xl font-bold text-white leading-tight mb-6">
-              Sip the
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-green-200 to-emerald-100">Freshness</span>
+            <h1 className="text-5xl md:text-7xl font-black mb-6 leading-tight">
+              <span className="text-white">Sip the</span>
+              <span className="block bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-emerald-400 bg-clip-text text-transparent filter drop-shadow-[0_0_10px_rgba(34,211,238,0.5)]">
+                Future
+              </span>
             </h1>
             
-            <p className="text-xl text-white/90 mb-8 max-w-lg mx-auto md:mx-0">
-              Authentic tea blends crafted with passion. Experience nature's finest leaves in every cup.
+            <p className="text-xl text-slate-400 mb-8 max-w-lg mx-auto md:mx-0 font-mono">
+              Authentic tea blends in cyberpunk style. Experience the neon taste of nature.
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center md:justify-start">
               <Link href="/menu">
-                <button className="px-8 py-4 bg-white text-tea-600 rounded-full font-bold text-lg shadow-xl hover:shadow-2xl transform hover:-translate-y-1 transition-all flex items-center justify-center space-x-2 group">
-                  <span>Explore Menu</span>
-                  <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
+                <button className="group px-8 py-4 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-full font-bold text-lg hover:bg-cyan-500/30 transition-all shadow-lg shadow-cyan-500/30 flex items-center justify-center space-x-2">
+                  <span>EXPLORE_MENU</span>
+                  <span className="group-hover:translate-x-1 transition-transform">→</span>
                 </button>
               </Link>
               
-              <button className="px-8 py-4 bg-transparent border-2 border-white text-white rounded-full font-bold text-lg hover:bg-white/10 transition-all flex items-center justify-center space-x-2">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                </svg>
-                <span>Watch Story</span>
+              <button className="px-8 py-4 bg-transparent border-2 border-fuchsia-400 text-fuchsia-400 rounded-full font-bold text-lg hover:bg-fuchsia-500/10 transition-all flex items-center justify-center space-x-2">
+                <span>▶</span>
+                <span>WATCH_STORY</span>
               </button>
             </div>
             
-            {/* Auth Buttons */}
             <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center md:justify-start">
               {!userData ? (
-                // Belum login - tampilkan tombol Login
                 <Link href="/login">
-                  <button className="px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full font-semibold hover:bg-white/30 transition-all flex items-center space-x-2 group">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <span>Masuk / Login</span>
+                  <button className="px-6 py-3 bg-fuchsia-500/20 border border-fuchsia-400 text-fuchsia-400 rounded-full font-mono text-sm hover:bg-fuchsia-500/30 transition-all">
+                    MASUK / LOGIN
                   </button>
                 </Link>
               ) : (
-                // Sudah login - tampilkan sapaan, tombol admin (jika admin), dan logout
                 <>
-                  <div className="flex items-center space-x-2 px-6 py-3 bg-white/20 backdrop-blur-sm border border-white/30 text-white rounded-full">
-                    <span>👋</span>
-                    <span>Halo, {userData.name}</span>
+                  <div className="flex items-center space-x-2 px-6 py-3 bg-emerald-500/10 border border-emerald-400/30 rounded-full">
+                    <span className="text-emerald-400">👋</span>
+                    <span className="text-emerald-400 font-mono">{userData.name}</span>
                   </div>
                   
-                  {/* Tombol Admin (hanya muncul jika admin) */}
                   {isAdmin && (
                     <Link href="/admin">
-                      <button className="px-6 py-3 bg-yellow-400/20 backdrop-blur-sm border border-yellow-400/50 text-yellow-100 rounded-full font-semibold hover:bg-yellow-400/30 transition-all flex items-center space-x-2">
-                        <span>👑</span>
-                        <span>Admin Panel</span>
+                      <button className="px-6 py-3 bg-yellow-400/20 border border-yellow-400 text-yellow-400 rounded-full font-mono text-sm hover:bg-yellow-400/30 transition-all">
+                        👑 ADMIN_PANEL
                       </button>
                     </Link>
                   )}
-                  
-                  {/* Tombol Logout */}
-                  <button 
-                    onClick={handleLogout}
-                    className="px-6 py-3 bg-red-500/20 backdrop-blur-sm border border-red-500/50 text-red-100 rounded-full font-semibold hover:bg-red-500/30 transition-all flex items-center space-x-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                    </svg>
-                    <span>Keluar</span>
-                  </button>
                 </>
               )}
             </div>
             
-            {/* Stats */}
             <div className="mt-12 grid grid-cols-3 gap-8">
               {[
-                { value: '50+', label: 'Tea Varieties' },
-                { value: '10k+', label: 'Happy Customers' },
-                { value: '4.9', label: 'Rating' },
+                { value: '50+', label: 'TEA_VAR', color: 'text-cyan-400' },
+                { value: '10K+', label: 'USERS', color: 'text-fuchsia-400' },
+                { value: '4.9', label: 'RATING', color: 'text-emerald-400' },
               ].map((stat) => (
                 <div key={stat.label} className="text-center md:text-left">
-                  <div className="text-3xl font-bold text-white">{stat.value}</div>
-                  <div className="text-sm text-white/70">{stat.label}</div>
+                  <div className={`text-3xl font-black ${stat.color} drop-shadow-[0_0_10px_rgba(34,211,238,0.3)]`}>
+                    {stat.value}
+                  </div>
+                  <div className="text-sm text-slate-500 font-mono">{stat.label}</div>
                 </div>
               ))}
             </div>
           </div>
           
-          {/* Right Content */}
-          <div className="relative animate-slide-in-right">
-            <div className="relative w-full aspect-square max-w-md mx-auto">
-              <div className="absolute inset-0 bg-white/20 rounded-full blur-3xl animate-pulse" />
-              
-              <div className="relative z-10 bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/20 shadow-2xl transform hover:scale-105 transition-transform duration-500">
-                <div className="text-center">
-                  <div className="text-9xl mb-4 animate-bounce-slow">🍵</div>
-                  <h3 className="text-2xl font-bold text-white mb-2">Signature Matcha</h3>
-                  <p className="text-white/80 mb-4">Premium Japanese green tea</p>
-                  <div className="flex justify-center space-x-1">
-                    {[1,2,3,4,5].map((star) => (
-                      <svg key={star} className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    ))}
-                  </div>
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-fuchsia-500/20 rounded-full blur-3xl animate-pulse" />
+            
+            <div className="relative z-10 bg-slate-900/50 backdrop-blur-xl rounded-3xl p-8 border border-cyan-500/30 shadow-2xl shadow-cyan-500/10">
+              <div className="text-center">
+                <div className="text-9xl mb-4 filter drop-shadow-[0_0_30px_rgba(34,211,238,0.5)] animate-bounce">🍵</div>
+                <h3 className="text-2xl font-bold text-white mb-2 font-mono">NEON_MATCHA</h3>
+                <p className="text-cyan-400 mb-4 font-mono text-sm">Premium Cyber Tea</p>
+                <div className="flex justify-center space-x-1">
+                  {[1,2,3,4,5].map((star) => (
+                    <svg key={star} className="w-5 h-5 text-yellow-400 fill-current drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  ))}
                 </div>
               </div>
-              
-              {/* Floating Badge */}
-              <div className="absolute -top-4 -right-4 bg-yellow-400 text-yellow-900 rounded-full w-20 h-20 flex items-center justify-center font-bold animate-spin-slow shadow-lg">
-                <div className="text-center text-xs">
-                  <div className="text-lg">20%</div>
-                  <div>OFF</div>
-                </div>
-              </div>
-              
-              <div className="absolute -bottom-6 -left-6">
-                <TeaLeaf size="md" className="opacity-60" />
+            </div>
+            
+            <div className="absolute -top-4 -right-4 bg-gradient-to-r from-cyan-400 to-fuchsia-400 text-slate-950 rounded-full w-20 h-20 flex items-center justify-center font-black animate-spin-slow shadow-lg shadow-cyan-500/50">
+              <div className="text-center text-xs">
+                <div className="text-lg">20%</div>
+                <div>OFF</div>
               </div>
             </div>
           </div>
