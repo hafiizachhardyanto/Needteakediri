@@ -26,24 +26,26 @@ export default function CekPesananPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const [timers, setTimers] = useState<{[key: string]: number}>({});
+  const [hasChecked, setHasChecked] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
 
-    if (!user || !userData) {
-      router.replace('/login?redirect=/cek-pesanan');
-      return;
+    if (!hasChecked) {
+      setHasChecked(true);
+      
+      if (!user || !userData) {
+        router.replace('/login?redirect=/cek-pesanan');
+        return;
+      }
+
+      if (isAdmin) {
+        router.replace('/admin');
+        return;
+      }
     }
 
-    if (isAdmin) {
-      router.replace('/admin');
-      return;
-    }
-
-    if (!isUser) {
-      router.replace('/login?redirect=/cek-pesanan');
-      return;
-    }
+    if (!user || !userData || isAdmin) return;
 
     let unsubscribe: (() => void) | null = null;
 
@@ -64,7 +66,7 @@ export default function CekPesananPage() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [user, userData, isAdmin, isUser, authLoading, router]);
+  }, [user, userData, isAdmin, authLoading, router, hasChecked]);
 
   useEffect(() => {
     if (orders.length === 0) return;
@@ -162,7 +164,7 @@ export default function CekPesananPage() {
 
   const displayOrders = activeTab === 'active' ? activeOrders : historyOrders;
 
-  if (authLoading) {
+  if (authLoading || !hasChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
@@ -174,7 +176,7 @@ export default function CekPesananPage() {
     );
   }
 
-  if (!user || !userData || !isUser) {
+  if (!user || !userData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="text-center">
@@ -188,6 +190,10 @@ export default function CekPesananPage() {
         </div>
       </div>
     );
+  }
+
+  if (isAdmin) {
+    return null;
   }
 
   return (
