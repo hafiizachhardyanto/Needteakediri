@@ -171,10 +171,11 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
         };
       }
     } else {
-      await updateDoc(doc(db, 'users', email), {
+      const updateData: any = {
         lastLogin: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
+      };
+      await updateDoc(doc(db, 'users', email), updateData);
     }
     
     const userDoc = await getDoc(doc(db, 'users', email));
@@ -256,12 +257,17 @@ export const checkUserExists = async (email: string): Promise<{ success: boolean
 export const saveUserToFirestore = async (email: string, userData: any): Promise<{ success: boolean; error?: string }> => {
   try {
     const dataToSave: any = {
-      ...userData,
       email,
       updatedAt: serverTimestamp()
     };
     
-    if (!userData.createdAt) {
+    Object.keys(userData).forEach(key => {
+      if (userData[key] !== undefined && key !== 'email' && key !== 'updatedAt') {
+        dataToSave[key] = userData[key];
+      }
+    });
+    
+    if (!dataToSave.createdAt) {
       dataToSave.createdAt = serverTimestamp();
     }
     
@@ -293,8 +299,11 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
         }
       });
       
+      if (safeUpdate.createdAt === undefined) {
+        delete safeUpdate.createdAt;
+      }
+      
       safeUpdate.role = existingData.role;
-      safeUpdate.createdAt = existingData.createdAt;
       safeUpdate.updatedAt = serverTimestamp();
       
       await updateDoc(userRef, safeUpdate);
@@ -303,13 +312,14 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
       const newRole = userData.role || 'user';
       
       const newUserData: any = {
+        email,
         role: newRole,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
       
       Object.keys(userData).forEach(key => {
-        if (userData[key] !== undefined && key !== 'role' && key !== 'createdAt' && key !== 'updatedAt') {
+        if (userData[key] !== undefined && key !== 'email' && key !== 'role' && key !== 'createdAt' && key !== 'updatedAt') {
           newUserData[key] = userData[key];
         }
       });
