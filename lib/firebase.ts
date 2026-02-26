@@ -157,19 +157,10 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
     const userCheck = await checkUserExists(email);
     
     if (!userCheck.exists) {
-      const saveResult = await saveUserToFirestoreSafe(email, {
-        email,
-        name: email.split('@')[0],
-        role: 'user',
-        lastLogin: serverTimestamp(),
-      });
-      
-      if (!saveResult.success) {
-        return {
-          success: false,
-          error: saveResult.error || 'Gagal menyimpan data user'
-        };
-      }
+      return { 
+        success: true, 
+        isNewUser: true 
+      };
     } else {
       const updateData: any = {
         lastLogin: serverTimestamp(),
@@ -202,6 +193,46 @@ export const loginWithOTP = async (email: string, otp: string): Promise<{
   }
 };
 
+export const completeUserRegistration = async (email: string, name: string): Promise<{
+  success: boolean;
+  error?: string;
+  userData?: DocumentData;
+}> => {
+  try {
+    const userData: any = {
+      email: email,
+      name: name.trim(),
+      role: 'user',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastLogin: serverTimestamp()
+    };
+    
+    await setDoc(doc(db, 'users', email), userData);
+    
+    const savedDoc = await getDoc(doc(db, 'users', email));
+    const savedData = savedDoc.data();
+    
+    localStorage.setItem('needtea_user', JSON.stringify({
+      email,
+      ...savedData,
+      isLoggedIn: true,
+      loginTime: new Date().toISOString()
+    }));
+    
+    return { 
+      success: true, 
+      userData: savedData 
+    };
+  } catch (error: any) {
+    console.error('completeUserRegistration Error:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Gagal menyimpan data user'
+    };
+  }
+};
+
 export const sendEmailLink = async (email: string): Promise<{ success: boolean; error?: string }> => {
   try {
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
@@ -228,12 +259,22 @@ export const completeSignInWithLink = async (email: string, url: string): Promis
     
     const isNewUser = result.user.metadata.creationTime === result.user.metadata.lastSignInTime;
     
-    await saveUserToFirestoreSafe(email, {
-      email: result.user.email,
-      name: result.user.displayName || email.split('@')[0],
-      emailVerified: result.user.emailVerified,
-      lastLogin: serverTimestamp(),
-    });
+    if (isNewUser) {
+      await setDoc(doc(db, 'users', email), {
+        email: result.user.email,
+        name: email.split('@')[0],
+        role: 'user',
+        emailVerified: result.user.emailVerified,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastLogin: serverTimestamp()
+      });
+    } else {
+      await updateDoc(doc(db, 'users', email), {
+        lastLogin: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
     
     return { 
       success: true, 
@@ -299,21 +340,17 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
         }
       });
       
-      if (safeUpdate.createdAt === undefined) {
-        delete safeUpdate.createdAt;
-      }
+      delete safeUpdate.createdAt;
+      delete safeUpdate.role;
       
-      safeUpdate.role = existingData.role;
       safeUpdate.updatedAt = serverTimestamp();
       
       await updateDoc(userRef, safeUpdate);
       return { success: true, isNewUser: false, role: existingData.role };
     } else {
-      const newRole = userData.role || 'user';
-      
       const newUserData: any = {
-        email,
-        role: newRole,
+        email: email,
+        role: 'user',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -325,7 +362,7 @@ export const saveUserToFirestoreSafe = async (email: string, userData: any): Pro
       });
       
       await setDoc(userRef, newUserData);
-      return { success: true, isNewUser: true, role: newRole };
+      return { success: true, isNewUser: true, role: 'user' };
     }
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -357,7 +394,7 @@ export const updateUserProfile = async (email: string, profileData: any): Promis
 export const setUserRole = async (email: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'users', email), {
-      role,
+      role: role,
       updatedAt: serverTimestamp()
     });
     return { success: true };
@@ -376,9 +413,9 @@ export const registerUser = async (email: string, password: string, name: string
     const user = userCredential.user;
     
     await setDoc(doc(db, 'users', email), {
-      email,
-      name,
-      role,
+      email: email,
+      name: name,
+      role: role,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -1243,7 +1280,7 @@ export const getAllUsers = async (): Promise<{
 export const updateUserRole = async (email: string, role: 'user' | 'admin'): Promise<{ success: boolean; error?: string }> => {
   try {
     await updateDoc(doc(db, 'users', email), {
-      role,
+      role: role,
       updatedAt: serverTimestamp()
     });
     return { success: true };

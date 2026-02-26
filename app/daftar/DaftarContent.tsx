@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { 
   saveOTPToUser, 
   checkUserExists, 
-  saveUserToFirestoreSafe,
+  completeUserRegistration,
   db
 } from '@/lib/firebase';
 import { sendOTPEmail } from '@/lib/emailjs';
@@ -191,23 +191,9 @@ export default function DaftarContent() {
     setError('');
 
     try {
-      const result = await saveUserToFirestoreSafe(email, {
-        email: email,
-        name: name.trim(),
-        createdAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-        role: 'user'
-      });
-
+      const result = await completeUserRegistration(email, name);
+      
       if (result.success) {
-        localStorage.setItem('needtea_user', JSON.stringify({
-          email: email,
-          name: name.trim(),
-          role: 'user',
-          isLoggedIn: true,
-          loginTime: new Date().toISOString()
-        }));
-
         router.push('/?registered=success');
       } else {
         setError(result.error || 'Gagal menyimpan data');
