@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import useAuth from '@/hooks/useAuth';
@@ -21,31 +21,42 @@ interface Order {
 
 export default function CekPesananPage() {
   const router = useRouter();
-  const { user, userData, isAdmin, isUser, loading: authLoading } = useAuth();
+  const { user, userData, isAdmin, loading: authLoading } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
   const [timers, setTimers] = useState<{[key: string]: number}>({});
-  const [hasChecked, setHasChecked] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const redirectAttempted = useRef(false);
 
   useEffect(() => {
     if (authLoading) return;
 
-    if (!hasChecked) {
-      setHasChecked(true);
+    const checkAuth = () => {
+      if (redirectAttempted.current) return;
       
-      if (!user || !userData) {
+      const storedUser = localStorage.getItem('needtea_user');
+      
+      if (!storedUser && !user) {
+        redirectAttempted.current = true;
         router.replace('/login?redirect=/cek-pesanan');
         return;
       }
 
       if (isAdmin) {
+        redirectAttempted.current = true;
         router.replace('/admin');
         return;
       }
-    }
 
-    if (!user || !userData || isAdmin) return;
+      setIsReady(true);
+    };
+
+    checkAuth();
+  }, [user, isAdmin, authLoading, router]);
+
+  useEffect(() => {
+    if (!isReady || !userData?.email) return;
 
     let unsubscribe: (() => void) | null = null;
 
@@ -66,7 +77,7 @@ export default function CekPesananPage() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [user, userData, isAdmin, authLoading, router, hasChecked]);
+  }, [isReady, userData?.email]);
 
   useEffect(() => {
     if (orders.length === 0) return;
@@ -164,7 +175,7 @@ export default function CekPesananPage() {
 
   const displayOrders = activeTab === 'active' ? activeOrders : historyOrders;
 
-  if (authLoading || !hasChecked) {
+  if (authLoading || !isReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem]" />
@@ -176,7 +187,7 @@ export default function CekPesananPage() {
     );
   }
 
-  if (!user || !userData) {
+  if (!user && !localStorage.getItem('needtea_user')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="text-center">
@@ -218,7 +229,7 @@ export default function CekPesananPage() {
           
           <div className="flex items-center space-x-2 px-4 py-2 bg-emerald-500/10 border border-emerald-400/30 rounded-lg">
             <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            <span className="text-emerald-400 font-mono text-sm">{userData.name}</span>
+            <span className="text-emerald-400 font-mono text-sm">{userData?.name || 'User'}</span>
           </div>
         </div>
       </nav>
