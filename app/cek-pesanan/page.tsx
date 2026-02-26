@@ -191,7 +191,7 @@ export default function CekPesananPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="text-center">
-          <p className="text-cyan-400 mb-4 font-mono text-xl">AKSES_DITOLAK</p>
+          <p className="text-cyan-400 mb-4 font-mono text-xl">AKSES DITOLAK</p>
           <p className="text-slate-400 mb-6">Silakan login sebagai pelanggan</p>
           <Link href="/login">
             <button className="px-8 py-3 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-lg font-bold hover:bg-cyan-500/30 transition-all">
@@ -240,7 +240,7 @@ export default function CekPesananPage() {
           <div className="text-center mb-10">
             <h1 className="text-5xl font-black mb-4">
               <span className="bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-emerald-400 bg-clip-text text-transparent">
-                STATUS_PESANAN
+                STATUS PESANAN
               </span>
             </h1>
             <p className="text-slate-400 font-mono">Pantau pesanan Anda secara real-time</p>
@@ -255,7 +255,7 @@ export default function CekPesananPage() {
                   : 'bg-slate-900 text-slate-500 border border-slate-700 hover:border-cyan-500/50'
               }`}
             >
-              PESANAN_AKTIF [{activeOrders.length}]
+              PESANAN AKTIF [{activeOrders.length}]
             </button>
             
             <button
@@ -273,12 +273,12 @@ export default function CekPesananPage() {
           {loading ? (
             <div className="text-center py-20">
               <div className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-cyan-400 font-mono">MEMUAT_DATA...</p>
+              <p className="text-cyan-400 font-mono">MEMUAT DATA...</p>
             </div>
           ) : displayOrders.length === 0 ? (
             <div className="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800">
               <div className="text-8xl mb-6 opacity-50">📭</div>
-              <p className="text-2xl font-mono text-slate-500 mb-2">TIDAK_ADA_DATA</p>
+              <p className="text-2xl font-mono text-slate-500 mb-2">TIDAK ADA DATA</p>
               <p className="text-slate-600 mb-8">
                 {activeTab === 'active' 
                   ? 'Anda tidak memiliki pesanan aktif saat ini' 
@@ -286,7 +286,7 @@ export default function CekPesananPage() {
               </p>
               <Link href="/menu">
                 <button className="px-8 py-3 bg-cyan-500/20 border border-cyan-400 text-cyan-400 rounded-lg font-bold hover:bg-cyan-500/30 transition-all">
-                  PESAN_SEKARANG
+                  PESAN SEKARANG
                 </button>
               </Link>
             </div>
@@ -304,7 +304,7 @@ export default function CekPesananPage() {
                       
                       <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
                         <div>
-                          <p className="text-slate-500 font-mono text-xs mb-1 tracking-wider">ORDER_ID</p>
+                          <p className="text-slate-500 font-mono text-xs mb-1 tracking-wider">ORDER ID</p>
                           <p className="text-xl font-mono text-cyan-400 tracking-wider">
                             #{order.id.slice(-8).toUpperCase()}
                           </p>
@@ -320,7 +320,7 @@ export default function CekPesananPage() {
                           <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-fuchsia-500/10" />
                           <div className="relative flex items-center justify-between">
                             <div>
-                              <p className="text-cyan-400 font-mono text-xs mb-1">BATAS_WAKTU</p>
+                              <p className="text-cyan-400 font-mono text-xs mb-1">BATAS WAKTU</p>
                               <p className="text-4xl font-black font-mono text-cyan-400">
                                 {formatTime(remainingTime)}
                               </p>
@@ -350,7 +350,7 @@ export default function CekPesananPage() {
 
                       <div className="border-t border-slate-800 pt-6 flex flex-wrap justify-between items-center gap-4">
                         <div>
-                          <p className="text-slate-500 font-mono text-xs mb-1 tracking-wider">TOTAL_PEMBAYARAN</p>
+                          <p className="text-slate-500 font-mono text-xs mb-1 tracking-wider">TOTAL PEMBAYARAN</p>
                           <p className="text-3xl font-black text-cyan-400">
                             Rp {order.totalAmount?.toLocaleString()}
                           </p>
@@ -365,7 +365,7 @@ export default function CekPesananPage() {
                               onClick={() => handleCancel(order.id)}
                               className="mt-2 text-rose-500 hover:text-rose-400 text-sm font-mono underline decoration-rose-500/50"
                             >
-                              [BATALKAN_PESANAN]
+                              [BATALKAN PESANAN]
                             </button>
                           )}
                         </div>

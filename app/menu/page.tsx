@@ -30,7 +30,7 @@ export default function MenuPage() {
       setLoading(false);
     });
 
-    const savedCart = localStorage.getItem('needtea_cart');
+    const savedCart = localStorage.getItem('needtea cart');
     if (savedCart) {
       setCart(JSON.parse(savedCart));
     }
@@ -39,7 +39,7 @@ export default function MenuPage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('needtea_cart', JSON.stringify(cart));
+    localStorage.setItem('needtea cart', JSON.stringify(cart));
   }, [cart]);
 
   const getAvailableStock = (menuId: string) => {
@@ -53,14 +53,14 @@ export default function MenuPage() {
   const addToCart = (item: any) => {
     const availableStock = getAvailableStock(item.id);
     if (availableStock <= 0) {
-      alert(`STOK_HABIS: ${item.name}`);
+      alert(`STOK HABIS: ${item.name}`);
       return;
     }
 
     const existingItem = cart.find(i => i.menuId === item.id);
     if (existingItem) {
       if (existingItem.quantity >= item.stock) {
-        alert(`STOK_LIMIT: ${item.name}`);
+        alert(`STOK LIMIT: ${item.name}`);
         return;
       }
       setCart(prev => prev.map(i => 
@@ -89,7 +89,7 @@ export default function MenuPage() {
     if (!item) return;
 
     if (quantity > item.maxStock) {
-      alert(`STOK_LIMIT: ${item.name} [MAX: ${item.maxStock}]`);
+      alert(`STOK LIMIT: ${item.name} [MAX: ${item.maxStock}]`);
       return;
     }
 
@@ -104,11 +104,11 @@ export default function MenuPage() {
 
   const handleCheckout = () => {
     if (cart.length === 0) {
-      alert('KERANJANG_KOSONG');
+      alert('KERANJANG KOSONG');
       return;
     }
     if (!userData) {
-      alert('LOGIN_REQUIRED');
+      alert('LOGIN REQUIRED');
       router.push('/login?redirect=/menu');
       return;
     }
@@ -116,7 +116,7 @@ export default function MenuPage() {
   };
 
   const handleLogout = async () => {
-    if (confirm('LOGOUT_SYSTEM?')) {
+    if (confirm('LOGOUT SYSTEM?')) {
       await logoutUser();
       window.location.reload();
     }
@@ -166,7 +166,7 @@ export default function MenuPage() {
               MENU
             </Link>
             <Link href="/cek-pesanan" className="text-slate-400 hover:text-cyan-400 transition-colors font-mono text-sm">
-              CEK_PESANAN
+              CEK PESANAN
             </Link>
           </div>
           
@@ -197,7 +197,6 @@ export default function MenuPage() {
           <div className="text-center mb-10">
             <div className="inline-flex items-center space-x-2 bg-cyan-500/10 backdrop-blur-sm border border-cyan-400/30 rounded-full px-4 py-2 mb-4">
               <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-400/50" />
-              <span className="text-cyan-400 font-mono text-sm tracking-wider">MENU DATABASE_LOADED</span>
             </div>
             <h1 className="text-4xl md:text-5xl font-black text-white mb-4 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">
               DIGITAL<span className="text-cyan-400"></span>MENU
@@ -289,7 +288,7 @@ export default function MenuPage() {
               <div className="sticky top-28 bg-slate-900/80 backdrop-blur-md rounded-xl p-6 border border-fuchsia-500/30 shadow-lg shadow-fuchsia-500/10">
                 <h2 className="text-white font-bold text-xl mb-4 flex items-center font-mono">
                   <span className="mr-2">🛒</span>
-                  <span>CART_SYSTEM</span>
+                  <span>CART SYSTEM</span>
                   {cart.length > 0 && (
                     <span className="ml-auto bg-cyan-400 text-slate-950 text-xs px-2 py-1 rounded font-mono font-bold">
                       {cart.reduce((sum, i) => sum + i.quantity, 0)}
@@ -299,7 +298,7 @@ export default function MenuPage() {
 
                 {cart.length === 0 ? (
                   <div className="text-center py-8 border-2 border-dashed border-slate-800 rounded-lg">
-                    <p className="text-slate-500 font-mono text-sm">CART_EMPTY</p>
+                    <p className="text-slate-500 font-mono text-sm">CART EMPTY</p>
                     <p className="text-slate-600 text-xs mt-1">Waiting for input...</p>
                   </div>
                 ) : (
@@ -350,7 +349,7 @@ export default function MenuPage() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-xs text-slate-500 font-mono">
-                        <span>TAX_INCLUDED</span>
+                        <span>TAX INCLUDED</span>
                         <span>ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</span>
                       </div>
                     </div>
@@ -358,7 +357,7 @@ export default function MenuPage() {
                       onClick={handleCheckout}
                       className="w-full py-3 bg-gradient-to-r from-cyan-500 to-fuchsia-500 hover:from-cyan-400 hover:to-fuchsia-400 text-slate-950 rounded-lg font-bold font-mono transition-all shadow-lg shadow-cyan-500/25"
                     >
-                      PROCEED_TO_CHECKOUT →
+                      PROCEED TO CHECKOUT →
                     </button>
                   </>
                 )}
