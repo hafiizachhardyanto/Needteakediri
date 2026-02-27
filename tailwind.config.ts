@@ -1,7 +1,6 @@
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
-  darkMode: 'class',
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -69,8 +68,6 @@ const config: Config = {
         'bounce-slow': 'bounce 3s infinite',
         'fade-in-up': 'fadeInUp 0.8s ease-out',
         'slide-in-right': 'slideInRight 0.6s ease-out',
-        'gradient-x': 'gradientX 3s ease infinite',
-        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
       keyframes: {
         float: {
@@ -89,13 +86,6 @@ const config: Config = {
           '0%': { opacity: '0', transform: 'translateX(50px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
         },
-        gradientX: {
-          '0%, 100%': { backgroundPosition: '0% 50%' },
-          '50%': { backgroundPosition: '100% 50%' },
-        },
-      },
-      backgroundSize: {
-        '200%': '200% 200%',
       },
     },
   },
